@@ -1,0 +1,34 @@
+---
+name: KiCAD client packaging
+on: # yamllint disable-line rule:truthy
+  release:
+    branches: master
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  create_archive:
+    runs-on: macos-13
+    steps:
+      - name: Get latest tag
+        uses: oprypin/find-latest-tag@v1
+        with:
+          repository: Huaqiu-Electronics/kicad-mac-builder
+          releases-only: true
+        id: latest-release
+
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Triggers a build
+        run: ./ci/src/make-universal-build.sh
+
+      - name: Upload installer as asset to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
+          file: ./.out/kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-x86_64.exe
+          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-x86_64.exe
+          overwrite: true
+          tag: ${{ steps.latest-release.outputs.tag }}
