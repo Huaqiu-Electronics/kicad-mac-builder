@@ -14,3 +14,5 @@ dmgbuild/kicad.dmg
 build-universal/
 build-arm64/
 build-x86_64/
+toolchain
+*.o
