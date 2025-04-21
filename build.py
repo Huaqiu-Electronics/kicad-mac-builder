@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-DEFAULT_KICAD_GIT_URL = "https://gitlab.com/kicad/code/kicad.git"
+DEFAULT_KICAD_GIT_URL = "https://gitlab.com/kicad-hq/kicad.git"
 
 def get_number_of_cores():
     return int(subprocess.check_output("sysctl -n hw.ncpu", shell=True).strip())

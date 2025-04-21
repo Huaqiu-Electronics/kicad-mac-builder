@@ -1,3 +1,5 @@
+# !/bin/zsh
+
 export WX_SKIP_DOXYGEN_VERSION_CHECK=1  
 
 ./build.py --arch=arm64 --target setup-kicad-dependencies
