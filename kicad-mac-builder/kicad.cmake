@@ -127,7 +127,9 @@ if(DEFINED REDISTRIBUTABLE)
         kicad
         fix-loading
         COMMENT "Checking and fixing bundle to make sure it's relocatable"
-        DEPENDEES install-docs-into-app install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+        # DEPENDEES install-docs-into-app install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+        DEPENDEES install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+
         # Since we're currently ignoring the exit status, let's make sure wrangle-bundle is installed
         COMMAND echo "Looking for wrangle-bundle..."
         COMMAND which wrangle-bundle
@@ -147,7 +149,9 @@ else()
             kicad
             sign-app
             COMMENT "Signing KiCad.app and its contents"
-            DEPENDEES install-docs-into-app install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+            # DEPENDEES install-docs-into-app install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+            DEPENDEES install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+
             # we can't modify KiCad.app after this without resigning
             COMMAND "${BIN_DIR}/apple.py" sign --certificate-id "${SIGNING_CERTIFICATE_ID}" ${HARDENED_RUNTIME_ARG} --entitlements "${BIN_DIR}/../signing/entitlements.plist" "${KICAD_INSTALL_DIR}/KiCad.app"
     )
