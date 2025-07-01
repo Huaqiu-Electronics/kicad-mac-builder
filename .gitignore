@@ -16,3 +16,4 @@ build-arm64/
 build-x86_64/
 toolchain
 *.o
+virtualenv
