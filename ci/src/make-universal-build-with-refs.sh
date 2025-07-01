@@ -36,10 +36,11 @@ echo "RELEASE_ARG=${RELEASE_ARG}"
 
 ORIG_PATH="$PATH"
 
-rm -rf build/ build-arm64/ build-x86_64/ build-universal/
+rm -rf  build-arm64/ build-x86_64/ build-universal/
 
 echo "Running build.py for arm64..."
 export PATH="/opt/homebrew/bin:$ORIG_PATH"
+./ci/src/clean-cmake-builds.sh
 start_time=$SECONDS
 CFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
     CXXFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
@@ -51,11 +52,12 @@ CFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
     $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 elapsed=$(( SECONDS - start_time ))
 echo "arm64 took $elapsed seconds."
-mv build build-arm64
+cp build build-arm64
 
 
 echo "Running build.py for x86_64..."
 export PATH="/usr/local/bin:$ORIG_PATH"
+./ci/src/clean-cmake-builds.sh
 start_time=$SECONDS
 CFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
     CXXFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
@@ -67,7 +69,7 @@ CFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
     $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 elapsed=$(( SECONDS - start_time ))
 echo "x86_64 took $elapsed seconds."
-mv build build-x86_64
+cp build build-x86_64
 
 echo "Combining arm64 and x86_64 KiCad bundles into a Universal KiCad bundle..."
 ditto --arch arm64 build-arm64/kicad-dest build-universal/thinned-arm64
