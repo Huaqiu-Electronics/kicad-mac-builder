@@ -1,0 +1,61 @@
+#!/bin/zsh
+set -euo pipefail
+
+TAG="${1:-9.0.2}"      # Use first argument, or default to 9.0.2
+ARCH="${2:-arm64}"     # Use second argument, or default to arm64
+
+clean_cmake_builds() {
+    if [ -d build ]; then
+        echo "Cleaning CMake builds in ./build ..."
+        find build -type d -name 'CMakeFiles' | while read -r cmake_dir; do
+            build_dir=$(dirname "$cmake_dir")
+            if [ -f "$build_dir/Makefile" ] || [ -f "$build_dir/build.ninja" ]; then
+                echo "Cleaning $build_dir"
+                (cd "$build_dir" && cmake --build . --target clean || true)
+            fi
+        done
+    fi
+}
+
+if [[ "$ARCH" == "x86_64" ]]; then
+    if [ ! -e virtualenv/bin/wrangle-bundle ]; then
+        echo "Setting up virtualenv ..."
+        ./ci/src/get-wrangle-bundle.sh
+    fi
+    source virtualenv/bin/activate
+fi
+
+export WX_SKIP_DOXYGEN_VERSION_CHECK=1
+
+# clean_cmake_builds
+
+KICAD_REF="release/9.0"
+RELEASE_NAME="huaqiu-${TAG}-macos-${ARCH}"
+DOCS_URL="https://gitlab.com/kicad/services/kicad-doc/-/archive/${TAG}/kicad-doc-${TAG}.tar.gz"
+
+echo "Building KiCad for $ARCH with tag $TAG ..."
+
+if [[ "$ARCH" == "arm64" ]]; then
+    CFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
+    CXXFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
+    WX_SKIP_DOXYGEN_VERSION_CHECK=true \
+    ./build.py --arch="$ARCH" --release --target package-kicad-unified --kicad-ref "$KICAD_REF" \
+        --symbols-ref "$TAG" --footprints-ref "$TAG" \
+        --packages3d-ref "$TAG" --templates-ref "$TAG" \
+        --docs-tarball-url "$DOCS_URL" \
+        --release-name "$RELEASE_NAME"
+elif [[ "$ARCH" == "x86_64" ]]; then
+    CFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
+    CXXFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
+    WX_SKIP_DOXYGEN_VERSION_CHECK=true arch -x86_64 \
+    ./build.py --arch="$ARCH" --release --target package-kicad-unified --kicad-ref "$KICAD_REF" \
+        --symbols-ref "$TAG" --footprints-ref "$TAG" \
+        --packages3d-ref "$TAG" --templates-ref "$TAG" \
+        --docs-tarball-url "$DOCS_URL" \
+        --release-name "$RELEASE_NAME"
+else
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+fi
+
+echo "Build complete for $ARCH."
