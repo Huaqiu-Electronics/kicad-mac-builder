@@ -25,7 +25,7 @@ jobs:
         run: ./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh
 
       - name: Triggers a build
-        run: ./ci/src/make-universal-build.sh
+        run: ./release_x86_64.sh
 
       - name: Upload installer as asset to release
         uses: svenstaro/upload-release-action@v2
