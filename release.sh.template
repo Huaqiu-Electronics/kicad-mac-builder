@@ -1,4 +1,8 @@
 #!/bin/zsh
+
+# Remember to make sure the first brew is /usr/local/bin/brew while building for x86_64.
+# Comment out eval $(/opt/homebrew/bin/brew shellenv) in ~/.zprofile before building for x86_64.
+
 set -euo pipefail
 
 TAG="${1:-9.0.2}"      # Use first argument, or default to 9.0.2
