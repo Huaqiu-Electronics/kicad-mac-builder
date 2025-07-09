@@ -32,6 +32,7 @@ fi
 export WX_SKIP_DOXYGEN_VERSION_CHECK=1
 
 # clean_cmake_builds
+rm -rf build/kicad/src/kicad-build/*
 
 KICAD_REF="release/9.0"
 RELEASE_NAME="huaqiu-${TAG}-macos-${ARCH}"
