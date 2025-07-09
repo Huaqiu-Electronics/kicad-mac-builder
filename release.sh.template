@@ -52,8 +52,8 @@ if [[ "$ARCH" == "arm64" ]]; then
 elif [[ "$ARCH" == "x86_64" ]]; then
     CFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
     CXXFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
-    WX_SKIP_DOXYGEN_VERSION_CHECK=true arch -x86_64 \
-    ./build.py --arch="$ARCH" --release --target package-kicad-unified --kicad-ref "$KICAD_REF" \
+    WX_SKIP_DOXYGEN_VERSION_CHECK=true \
+    arch -x86_64 ./build.py --arch="$ARCH" --release --target package-kicad-unified --kicad-ref "$KICAD_REF" \
         --symbols-ref "$TAG" --footprints-ref "$TAG" \
         --packages3d-ref "$TAG" --templates-ref "$TAG" \
         --docs-tarball-url "$DOCS_URL" \
