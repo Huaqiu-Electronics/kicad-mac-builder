@@ -17,4 +17,3 @@ build-x86_64/
 toolchain
 *.o
 virtualenv
-release.sh
