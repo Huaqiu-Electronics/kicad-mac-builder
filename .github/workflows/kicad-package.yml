@@ -8,7 +8,7 @@ on: # yamllint disable-line rule:truthy
   workflow_dispatch:
 
 jobs:
-  create_x86_64_archive:
+  create_kicad_archive:
     runs-on: macos-14
     steps:
       - name: Get latest tag
@@ -20,6 +20,10 @@ jobs:
 
       - name: Checkout repo
         uses: actions/checkout@v3
+
+      - name: Bootstrap
+        run: ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh   
+        run: ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
 
       - name: Build KICad
         run: ./ci/src/make-universal-build.sh
