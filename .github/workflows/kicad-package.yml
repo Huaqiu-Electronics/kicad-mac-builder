@@ -9,7 +9,7 @@ on: # yamllint disable-line rule:truthy
 
 jobs:
   create_x86_64_archive:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - name: Get latest tag
         uses: oprypin/find-latest-tag@v1
