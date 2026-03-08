@@ -21,11 +21,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Install brew
-        run: ./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh
-
-      - name: Build x86_64
-        run: ./release.sh ${{ steps.latest-release.outputs.tag }} x86_64
+      - name: Build KICad
+        run: ./ci/src/make-universal-build.sh
 
       - name: Upload installer as asset to release
         uses: svenstaro/upload-release-action@v2
