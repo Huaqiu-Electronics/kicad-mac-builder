@@ -79,7 +79,16 @@ fixup_and_cleanup() {
     SetFile -a V "${MOUNTPOINT}/background.png"
 
     echo "Detaching build mount..."
-    hdiutil detach "${MOUNTPOINT}" -force
+    for i in {1..12}; do
+        if hdiutil detach "${MOUNTPOINT}" -force 2>/dev/null; then
+            break
+        fi
+        echo "Retry detach ${MOUNTPOINT} ($i)"
+        lsof "${MOUNTPOINT}" || true
+        pkill -f diskimages-helper || true
+        sync
+        sleep 5
+    done
 
     rm -rf "${MOUNTPOINT}"
 
