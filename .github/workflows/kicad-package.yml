@@ -14,6 +14,30 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Show initial disk usage
+        run: |
+          echo "Initial disk usage:"
+          df -h
+
+      - name: Free disk space
+        run: |
+          echo "Cleaning large preinstalled software..."
+
+          # Remove Xcode (huge, ~20GB+)
+          sudo rm -rf /Applications/Xcode*.app || true
+          sudo rm -rf /Library/Developer/CoreSimulator || true
+          sudo rm -rf ~/Library/Developer/Xcode || true
+
+          # Remove Android SDK
+          sudo rm -rf /Users/runner/Library/Android || true
+
+          # Cleanup Homebrew caches
+          brew cleanup -s || true
+          rm -rf "$(brew --cache)" || true
+
+          echo "Disk after cleanup:"
+          df -h
+
       - name: Get latest tag
         id: latest-release
         uses: oprypin/find-latest-tag@v1
@@ -21,10 +45,29 @@ jobs:
           repository: Huaqiu-Electronics/kicad-mac-builder
           releases-only: true
 
+      - name: Install build tools
+        run: |
+          brew update
+          brew install ccache ninja
+
+      - name: Setup ccache
+        run: |
+          echo 'export CC="ccache clang"' >> $GITHUB_ENV
+          echo 'export CXX="ccache clang++"' >> $GITHUB_ENV
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: macos-ccache-${{ github.ref }}
+
       - name: Bootstrap
         run: |
           ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
           ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
+
+      - name: Show disk before build
+        run: df -h
 
       - name: Build KiCad
         env:
@@ -40,6 +83,9 @@ jobs:
           DOCS_TARBALL_URL: https://gitlab.com/kicad/services/kicad-doc/-/archive/${{ steps.latest-release.outputs.tag }}/kicad-doc-${{ steps.latest-release.outputs.tag }}.tar.gz
         run: |
           ./ci/src/make-universal-build-with-refs.sh
+
+      - name: Show disk after build
+        run: df -h
 
       - name: Upload installer as asset to release
         uses: svenstaro/upload-release-action@v2
