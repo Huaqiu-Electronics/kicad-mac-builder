@@ -52,7 +52,7 @@ CFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
     $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 elapsed=$(( SECONDS - start_time ))
 echo "arm64 took $elapsed seconds."
-cp build build-arm64
+mv build build-arm64
 
 
 echo "Running build.py for x86_64..."
@@ -69,7 +69,7 @@ CFLAGS="-I/$(/usr/local/bin/brew --prefix)/include" \
     $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 elapsed=$(( SECONDS - start_time ))
 echo "x86_64 took $elapsed seconds."
-cp build build-x86_64
+mv build build-x86_64
 
 echo "Combining arm64 and x86_64 KiCad bundles into a Universal KiCad bundle..."
 ditto --arch arm64 build-arm64/kicad-dest build-universal/thinned-arm64
