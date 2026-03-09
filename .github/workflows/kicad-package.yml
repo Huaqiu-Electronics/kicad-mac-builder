@@ -25,10 +25,11 @@ jobs:
 
           # The Xcode version to keep
           KEEP_XCODE="/Applications/Xcode_16.2.app"
+          KEEP_SYMLINK="/Applications/Xcode.app"
 
           # Remove all other Xcodes
           for xcode in /Applications/Xcode*.app; do
-            if [ "$xcode" != "$KEEP_XCODE" ]; then
+            if [ "$xcode" != "$KEEP_XCODE" ] && [ "$xcode" != "$KEEP_SYMLINK" ]; then
               echo "Removing $xcode ..."
               sudo rm -rf "$xcode"
             fi
@@ -38,8 +39,10 @@ jobs:
           sudo rm -rf /Library/Developer/CoreSimulator || true
           sudo rm -rf ~/Library/Developer/Xcode || true
 
-          # Select the Xcode we want
+          # Ensure Xcode selection points to the version we want
           sudo xcode-select -s "$KEEP_XCODE"
+
+          echo "Selected Xcode version:"
           xcodebuild -version
           clang++ --version
 
