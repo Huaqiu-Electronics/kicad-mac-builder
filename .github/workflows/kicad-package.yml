@@ -1,4 +1,3 @@
----
 name: KiCad client packaging
 
 on:
@@ -28,7 +27,17 @@ jobs:
           ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
 
       - name: Build KiCad
-        run: ./ci/src/make-universal-build.sh
+        env:
+          TAG: ${{ steps.latest-release.outputs.tag }}
+          KICAD_REF: release/10.0
+          SYMBOLS_REF: ${{ steps.latest-release.outputs.tag }}
+          FOOTPRINTS_REF: ${{ steps.latest-release.outputs.tag }}
+          PACKAGES3D_REF: ${{ steps.latest-release.outputs.tag }}
+          TEMPLATES_REF: ${{ steps.latest-release.outputs.tag }}
+          RELEASE_NAME: huaqiu-${{ steps.latest-release.outputs.tag }}-macos
+          DOCS_TARBALL_URL: https://gitlab.com/kicad/services/kicad-doc/-/archive/${{ steps.latest-release.outputs.tag }}/kicad-doc-${{ steps.latest-release.outputs.tag }}.tar.gz
+        run: |
+          ./ci/src/make-universal-build-with-refs.sh
 
       - name: Upload installer as asset to release
         uses: svenstaro/upload-release-action@v2
