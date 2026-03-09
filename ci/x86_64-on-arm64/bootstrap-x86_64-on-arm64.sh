@@ -43,7 +43,11 @@ fi
 
 export HOMEBREW_NO_ANALYTICS=1
 
+echo "Updating Homebrew..."
+arch -x86_64 /usr/local/bin/brew update
+
 echo "Installing some dependencies"
 
-arch -x86_64 /usr/local/bin/brew install "${BREW_DEPS[@]}"
+arch -x86_64 /usr/local/bin/brew install "${BREW_DEPS[@]}" || true
+arch -x86_64 /usr/local/bin/brew upgrade "${BREW_DEPS[@]}" || true
 echo "Done!"

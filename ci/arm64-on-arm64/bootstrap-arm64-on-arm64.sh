@@ -21,7 +21,11 @@ if [ ! -e /opt/homebrew/bin/brew ]; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)" # by not redirecting /dev/null into stdin here, it means it's easier to use when running by hand.
 fi
 
+echo "Updating Homebrew..."
+/opt/homebrew/bin/brew update
+
 echo "Installing some dependencies"
-/opt/homebrew/bin/brew install  "${BREW_DEPS[@]}"
+/opt/homebrew/bin/brew install  "${BREW_DEPS[@]}" || true
+/opt/homebrew/bin/brew upgrade  "${BREW_DEPS[@]}" || true
 
 echo "Done!"
