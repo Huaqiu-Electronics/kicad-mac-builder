@@ -8,7 +8,7 @@ on:
 
 jobs:
   create_kicad_archive:
-    runs-on: macos-15
+    runs-on: macos-14   # Switch to macOS 14 for Xcode 16
 
     steps:
       - name: Checkout repo
@@ -19,14 +19,29 @@ jobs:
           echo "Initial disk usage:"
           df -h
 
-      - name: Free disk space
+      - name: Free disk space (keep Xcode 16.2)
         run: |
           echo "Cleaning large preinstalled software..."
 
-          # Remove Xcode (huge, ~20GB+)
-          sudo rm -rf /Applications/Xcode*.app || true
+          # The Xcode version to keep
+          KEEP_XCODE="/Applications/Xcode_16.2.app"
+
+          # Remove all other Xcodes
+          for xcode in /Applications/Xcode*.app; do
+            if [ "$xcode" != "$KEEP_XCODE" ]; then
+              echo "Removing $xcode ..."
+              sudo rm -rf "$xcode"
+            fi
+          done
+
+          # Optional: remove old simulators and user Xcode caches
           sudo rm -rf /Library/Developer/CoreSimulator || true
           sudo rm -rf ~/Library/Developer/Xcode || true
+
+          # Select the Xcode we want
+          sudo xcode-select -s "$KEEP_XCODE"
+          xcodebuild -version
+          clang++ --version
 
           # Remove Android SDK
           sudo rm -rf /Users/runner/Library/Android || true
