@@ -27,5 +27,7 @@ echo "Updating Homebrew..."
 echo "Installing some dependencies"
 /opt/homebrew/bin/brew install  "${BREW_DEPS[@]}" || true
 /opt/homebrew/bin/brew upgrade  "${BREW_DEPS[@]}" || true
+# Clean up brew
+/opt/homebrew/bin/brew cleanup -s
 
 echo "Done!"

@@ -50,4 +50,7 @@ echo "Installing some dependencies"
 
 arch -x86_64 /usr/local/bin/brew install "${BREW_DEPS[@]}" || true
 arch -x86_64 /usr/local/bin/brew upgrade "${BREW_DEPS[@]}" || true
+# Clean up brew
+arch -x86_64 /usr/local/bin/brew cleanup -s
+
 echo "Done!"
