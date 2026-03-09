@@ -1,31 +1,33 @@
 ---
-name: KiCAD client packaging
-on: # yamllint disable-line rule:truthy
+name: KiCad client packaging
+
+on:
   release:
-    branches: master
-    types:
-      - published
+    branches: [master]
+    types: [published]
   workflow_dispatch:
 
 jobs:
   create_kicad_archive:
     runs-on: macos-14
+
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Get latest tag
+        id: latest-release
         uses: oprypin/find-latest-tag@v1
         with:
           repository: Huaqiu-Electronics/kicad-mac-builder
           releases-only: true
-        id: latest-release
-
-      - name: Checkout repo
-        uses: actions/checkout@v3
 
       - name: Bootstrap
-        run: ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh   
-        run: ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
+        run: |
+          ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
+          ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
 
-      - name: Build KICad
+      - name: Build KiCad
         run: ./ci/src/make-universal-build.sh
 
       - name: Upload installer as asset to release
