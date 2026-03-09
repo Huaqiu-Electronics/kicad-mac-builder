@@ -30,6 +30,8 @@ jobs:
         env:
           TAG: ${{ steps.latest-release.outputs.tag }}
           KICAD_REF: release/10.0
+          EXTRA_VERSION : -huaqiu
+          RELEASE_ARG : --release
           SYMBOLS_REF: ${{ steps.latest-release.outputs.tag }}
           FOOTPRINTS_REF: ${{ steps.latest-release.outputs.tag }}
           PACKAGES3D_REF: ${{ steps.latest-release.outputs.tag }}
