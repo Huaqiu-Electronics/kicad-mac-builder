@@ -56,10 +56,9 @@ mv build build-arm64
 
 
 echo "Running build.py for x86_64..."
-# Strip /opt/homebrew from PATH so any subprocess call to `brew` (including
-# from within CMakeLists.txt) resolves to the x86_64 Homebrew at /usr/local.
-X86_PATH=$(echo "$ORIG_PATH" | tr ':' '\n' | grep -v '/opt/homebrew' | tr '\n' ':' | sed 's/:$//')
-export PATH="/usr/local/bin:${X86_PATH}"
+# Put /usr/local/bin first so `brew` resolves to x86_64 Homebrew,
+# but keep /opt/homebrew/bin available so cmake (arm64-only) is still found.
+export PATH="/usr/local/bin:$ORIG_PATH"
 ./ci/src/clean-cmake-builds.sh
 start_time=$SECONDS
 X86_BREW_PREFIX=$(/usr/local/bin/brew --prefix)
