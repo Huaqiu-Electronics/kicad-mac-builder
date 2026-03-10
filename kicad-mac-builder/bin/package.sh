@@ -19,10 +19,12 @@ cleanup() {
     echo "Making sure any mounts are unmounted."
     if [ -n "${MOUNTPOINT}" ]; then
         hdiutil detach "${MOUNTPOINT}" || true
+        hdiutil detach -force "${MOUNTPOINT}" || true
     fi
 
     if [ -n "${MOUNT_NAME}" ]; then
         hdiutil detach /Volumes/"${MOUNT_NAME}" || true
+        hdiutil detach -force /Volumes/"${MOUNT_NAME}" || true
         diskutil unmount /Volumes/"${MOUNT_NAME}" || true
     fi
 }
@@ -52,7 +54,7 @@ setup_dmg()
     # resize the template, and mount it
 
     if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
-        hdiutil resize -limits kicadtemplate.dmg # TODO what is this? Does this work?
+        hdiutil resize -limits kicadtemplate.dmg
         hdiutil resize -sectors 10167525 "${TEMPLATE}"
         hdiutil resize -limits kicadtemplate.dmg
         if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
@@ -74,12 +76,16 @@ fixup_and_cleanup()
 
     UNMOUNTED=1
     for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if hdiutil detach "${MOUNTPOINT}"; then
+        if hdiutil detach "${MOUNTPOINT}" \
+            || hdiutil detach "/Volumes/${MOUNT_NAME}" \
+            || hdiutil detach -force "${MOUNTPOINT}" \
+            || hdiutil detach -force "/Volumes/${MOUNT_NAME}"; then
           UNMOUNTED=0
           break
         else
           echo "Retrying..."
           lsof "${MOUNTPOINT}" || true
+          lsof "/Volumes/${MOUNT_NAME}" || true
           sync || true
           sleep 10
         fi
@@ -100,7 +106,10 @@ fixup_and_cleanup()
 
     UNMOUNTED=1
     for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if hdiutil detach "/Volumes/${MOUNT_NAME}"; then
+        if hdiutil detach "/Volumes/${MOUNT_NAME}" \
+            || hdiutil detach -force "/Volumes/${MOUNT_NAME}" \
+            || hdiutil detach "${MOUNTPOINT}" \
+            || hdiutil detach -force "${MOUNTPOINT}"; then
           UNMOUNTED=0
           break
         else
@@ -118,8 +127,8 @@ fixup_and_cleanup()
     if [ -e "${DMG_NAME}" ] ; then
         rm -r "${DMG_NAME}"
     fi
-    #hdiutil convert "${TEMPLATE}"  -format UDBZ -imagekey -o "${DMG_NAME}" # bzip2 based is a little bit smaller, but opens much, much slower.
-    hdiutil convert "${TEMPLATE}"  -format UDZO -imagekey zlib-level=9 -o "${DMG_NAME}" # This used zlib, and bzip2 based (above) is slower but more compression
+
+    hdiutil convert "${TEMPLATE}"  -format UDZO -imagekey zlib-level=9 -o "${DMG_NAME}"
 
     rm "${TEMPLATE}"
 
@@ -138,19 +147,16 @@ fixup_and_cleanup()
 
     mkdir -p "${DMG_DIR}"
 
-    # If you move a file to the directory it's in, `mv` returns an error.  Ignore that one.
     output="$(mv "${DMG_NAME}" "${DMG_DIR}"/ 2>&1 || true)"
     if [ ! $? ]; then
         if ! echo "$line" | grep ' are identical$'; then
             echo "Error: ${output}"
-      exit 1
-  fi
+            exit 1
+        fi
     fi
 }
 
-#if [ "${VERBOSE}" ]; then
-    set -x
-#fi
+set -x
 
 echo "PACKAGING_DIR: ${PACKAGING_DIR}"
 echo "KICAD_SOURCE_DIR: ${KICAD_SOURCE_DIR}"
@@ -159,11 +165,13 @@ echo "VERBOSE: ${VERBOSE}"
 echo "TEMPLATE: ${TEMPLATE}"
 echo "DMG_DIR: ${DMG_DIR}"
 echo "PACKAGE_TYPE: ${PACKAGE_TYPE}"
-if [ -n "${RELEASE_NAME}" ]; then # if RELEASE_NAME is unset, or is set to empty string
+
+if [ -n "${RELEASE_NAME}" ]; then
     echo "RELEASE_NAME: ${RELEASE_NAME}"
 else
     echo "RELEASE_NAME: unspecified"
 fi
+
 echo "SIGNING_IDENTITY: ${SIGNING_IDENTITY}"
 echo "APPLE_DEVELOPER_USERNAME: ${APPLE_DEVELOPER_USERNAME}"
 echo "APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME: ${APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME}"
@@ -204,25 +212,6 @@ fi
 NOW=$(date +%Y%m%d-%H%M%S)
 
 case "${PACKAGE_TYPE}" in
-    nightly)
-        KICAD_GIT_REV=$(cd "${KICAD_SOURCE_DIR}" && git rev-parse --short HEAD)
-        MOUNT_NAME='KiCad'
-        DMG_SIZE=15567525
-        if [ -z "$RELEASE_NAME" ]; then
-            DMG_NAME=kicad-nightly-"${NOW}"-"${KICAD_GIT_REV}".dmg
-        else
-            DMG_NAME=kicad-nightly-"${RELEASE_NAME}".dmg
-        fi
-    ;;
-    extras)
-        MOUNT_NAME='KiCad Extras'
-        DMG_SIZE=9.5G
-        if [ -z "$RELEASE_NAME" ]; then
-            DMG_NAME=kicad-extras-"${NOW}".dmg
-        else
-            DMG_NAME=kicad-extras-"${RELEASE_NAME}".dmg
-        fi
-    ;;
     unified)
         KICAD_GIT_REV=$(cd "${KICAD_SOURCE_DIR}" && git rev-parse --short HEAD)
         MOUNT_NAME='KiCad'
@@ -233,32 +222,16 @@ case "${PACKAGE_TYPE}" in
             DMG_NAME=kicad-unified-"${RELEASE_NAME}".dmg
         fi
     ;;
-    *)
-        echo "PACKAGE_TYPE must be either \"nightly\", \"extras\", or \"unified\"."
-        exit 1
 esac
 
 MOUNTPOINT=kicad-mnt
 
 setup_dmg
 
-case "${PACKAGE_TYPE}" in
-    nightly)
-      exit 1
-    ;;
-    extras)
-      exit 1
-    ;;
-    unified)
-        mkdir -p "${MOUNTPOINT}"/KiCad
-        rsync -al "${KICAD_INSTALL_DIR}"/* "${MOUNTPOINT}"/KiCad/. # IMPORTANT: must preserve symlinks
-        echo "Moving demos"
-        mv "${MOUNTPOINT}"/KiCad/demos "${MOUNTPOINT}"/
-    ;;
-    *)
-        echo "PACKAGE_TYPE must be \"unified\"."
-        exit 1
-esac
+mkdir -p "${MOUNTPOINT}"/KiCad
+rsync -al "${KICAD_INSTALL_DIR}"/* "${MOUNTPOINT}"/KiCad/.
+echo "Moving demos"
+mv "${MOUNTPOINT}"/KiCad/demos "${MOUNTPOINT}"/
 
 fixup_and_cleanup
 
