@@ -179,3 +179,24 @@ echo "Adhoc-signing Universal bundle..."
 
 echo "The adhoc-signed Universal bundles are in build-universal/dest."
 echo "Before these could be distributed, they should be signed with an Apple certificate and notarized."
+
+
+#########################################################
+# CREATE UNIVERSAL DMG
+#########################################################
+
+echo "Creating universal DMG..."
+
+mkdir -p build/dmg
+
+DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
+
+hdiutil create \
+  -volname "KiCad" \
+  -srcfolder build-universal/dest/KiCad.app \
+  -ov \
+  -format UDZO \
+  build/dmg/${DMG_NAME}
+
+echo "Universal DMG created:"
+echo "build/dmg/${DMG_NAME}"
