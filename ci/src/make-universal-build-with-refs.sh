@@ -5,12 +5,13 @@ set -euxo pipefail
 # Build an arm64 version of KiCad, and an x86_64 version of KiCad, combine them, and re-sign them.
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 KICAD_MAC_BUILDER_DIR=${SCRIPT_DIR}/../../
 
 "$SCRIPT_DIR"/watermark.sh --both
 
 if [ "$(arch)" != "arm64" ]; then
-  echo "Expected 'arch' to return 'arm64'. Are you in a terminal running under Rosetta?"
+  echo "Expected 'arch' to return 'arm64'. Are you in a terminal running under Rosetta, maybe?"
   exit 1
 fi
 
@@ -34,45 +35,46 @@ echo "RELEASE_ARG=${RELEASE_ARG}"
 
 ORIG_PATH="$PATH"
 
-rm -rf build build-arm64 build-x86_64 build-universal
+rm -rf build-arm64/ build-x86_64/ build-universal/
 
-############################################################
+#########################################################
 # ARM64 BUILD
-############################################################
+#########################################################
 
 echo "Running build.py for arm64..."
 
 export PATH="/opt/homebrew/bin:$ORIG_PATH"
-export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
-export CPATH="/opt/homebrew/include"
-export LIBRARY_PATH="/opt/homebrew/lib"
 
 ./ci/src/clean-cmake-builds.sh
 
+ARM_PREFIX="$(/opt/homebrew/bin/brew --prefix)"
+
 start_time=$SECONDS
 
-CFLAGS="-I$(/opt/homebrew/bin/brew --prefix)/include" \
-CXXFLAGS="-I$(/opt/homebrew/bin/brew --prefix)/include" \
+CFLAGS="-I${ARM_PREFIX}/include" \
+CXXFLAGS="-I${ARM_PREFIX}/include" \
 WX_SKIP_DOXYGEN_VERSION_CHECK=true \
 ./build.py --arch=arm64 --target package-kicad-unified \
---kicad-ref $KICAD_REF --symbols-ref $SYMBOLS_REF --footprints-ref $FOOTPRINTS_REF \
---packages3d-ref $PACKAGES3D_REF --release-name $RELEASE_NAME \
---docs-tarball-url $DOCS_TARBALL_URL --templates-ref $TEMPLATES_REF \
-$MACOS_MIN_VERSION_ARG $RELEASE_ARG
+  --kicad-ref $KICAD_REF \
+  --symbols-ref $SYMBOLS_REF \
+  --footprints-ref $FOOTPRINTS_REF \
+  --packages3d-ref $PACKAGES3D_REF \
+  --release-name $RELEASE_NAME \
+  --docs-tarball-url $DOCS_TARBALL_URL \
+  --templates-ref $TEMPLATES_REF \
+  $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 
 elapsed=$(( SECONDS - start_time ))
 echo "arm64 took $elapsed seconds."
 
 mv build build-arm64
 
-# Free disk space
-rm -rf build-arm64/_deps || true
-rm -rf build-arm64/CMakeFiles || true
-rm -rf build-arm64/Testing || true
+# reduce disk usage
+rm -rf build-arm64/_deps build-arm64/CMakeFiles build-arm64/Testing || true
 
-############################################################
-# X86_64 BUILD
-############################################################
+#########################################################
+# X86 BUILD
+#########################################################
 
 echo "Running build.py for x86_64..."
 
@@ -83,32 +85,32 @@ export LIBRARY_PATH="/usr/local/lib"
 
 ./ci/src/clean-cmake-builds.sh
 
+INTEL_PREFIX="$(/usr/local/bin/brew --prefix)"
+
 start_time=$SECONDS
 
-arch -x86_64 bash -c "
-CFLAGS='-I\$(/usr/local/bin/brew --prefix)/include' \
-CXXFLAGS='-I\$(/usr/local/bin/brew --prefix)/include' \
-WX_SKIP_DOXYGEN_VERSION_CHECK=true \
-./build.py --arch=x86_64 --target package-kicad-unified \
---kicad-ref $KICAD_REF --symbols-ref $SYMBOLS_REF --footprints-ref $FOOTPRINTS_REF \
---packages3d-ref $PACKAGES3D_REF --release-name $RELEASE_NAME \
---docs-tarball-url $DOCS_TARBALL_URL --templates-ref $TEMPLATES_REF \
-$MACOS_MIN_VERSION_ARG $RELEASE_ARG
-"
+arch -x86_64 env \
+  CFLAGS="-I${INTEL_PREFIX}/include" \
+  CXXFLAGS="-I${INTEL_PREFIX}/include" \
+  WX_SKIP_DOXYGEN_VERSION_CHECK=true \
+  ./build.py --arch=x86_64 --target package-kicad-unified \
+    --kicad-ref $KICAD_REF \
+    --symbols-ref $SYMBOLS_REF \
+    --footprints-ref $FOOTPRINTS_REF \
+    --packages3d-ref $PACKAGES3D_REF \
+    --release-name $RELEASE_NAME \
+    --docs-tarball-url $DOCS_TARBALL_URL \
+    --templates-ref $TEMPLATES_REF \
+    $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 
 elapsed=$(( SECONDS - start_time ))
 echo "x86_64 took $elapsed seconds."
 
 mv build build-x86_64
 
-# Free disk space
-rm -rf build-x86_64/_deps || true
-rm -rf build-x86_64/CMakeFiles || true
-rm -rf build-x86_64/Testing || true
-
-############################################################
-# CREATE UNIVERSAL APP
-############################################################
+#########################################################
+# CREATE UNIVERSAL BUNDLE
+#########################################################
 
 echo "Combining arm64 and x86_64 KiCad bundles into a Universal KiCad bundle..."
 
@@ -132,8 +134,7 @@ for app in *.app; do
     ! -name "*.h" \
     ! -name "*.txt" \
     ! -name "*.html" \
-    ! -name "*.xml" \
-    -print0 | while IFS= read -r -d '' f; do
+    ! -name "*.xml" | while read f; do
 
     if file "$f" | grep -E 'Mach-O|library' > /dev/null; then
 
@@ -153,8 +154,11 @@ for app in *.app; do
       rm "$f"
 
       echo "Combining $THIN_X86_64_VERSION and $THIN_ARM64_VERSION..."
-      lipo "$THIN_X86_64_VERSION" "$THIN_ARM64_VERSION" -create -output "$f"
+
+      lipo "$THIN_X86_64_VERSION" "$THIN_ARM64_VERSION" \
+        -create -output "$f"
     fi
+
   done
 
   cd -
@@ -162,16 +166,16 @@ done
 
 cd ../
 
-############################################################
-# SIGN
-############################################################
+#########################################################
+# SIGN UNIVERSAL BUNDLE
+#########################################################
 
 echo "Adhoc-signing Universal bundle..."
 
 "$KICAD_MAC_BUILDER_DIR"/kicad-mac-builder/bin/apple.py sign \
---certificate-id - \
---entitlements "${KICAD_MAC_BUILDER_DIR}/kicad-mac-builder/signing/entitlements.plist" \
-"${KICAD_MAC_BUILDER_DIR}/build-universal/dest/KiCad.app"
+  --certificate-id - \
+  --entitlements "${KICAD_MAC_BUILDER_DIR}/kicad-mac-builder/signing/entitlements.plist" \
+  "${KICAD_MAC_BUILDER_DIR}/build-universal/dest/KiCad.app"
 
 echo "The adhoc-signed Universal bundles are in build-universal/dest."
-echo "Before distribution they must be signed with an Apple certificate and notarized."
+echo "Before these could be distributed, they should be signed with an Apple certificate and notarized."
