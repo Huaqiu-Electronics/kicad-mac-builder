@@ -3,6 +3,7 @@
 set -euxo pipefail
 
 # Build an arm64 version of KiCad, and an x86_64 version of KiCad, combine them, and re-sign them.
+# This is not very elegant.
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
@@ -35,85 +36,47 @@ echo "RELEASE_ARG=${RELEASE_ARG}"
 
 ORIG_PATH="$PATH"
 
-rm -rf build-arm64/ build-x86_64/ build-universal/
-
-#########################################################
-# ARM64 BUILD
-#########################################################
+rm -rf  build-arm64/ build-x86_64/ build-universal/
 
 echo "Running build.py for arm64..."
-
 export PATH="/opt/homebrew/bin:$ORIG_PATH"
-
 ./ci/src/clean-cmake-builds.sh
-
-ARM_PREFIX="$(/opt/homebrew/bin/brew --prefix)"
-
 start_time=$SECONDS
-
-CFLAGS="-I${ARM_PREFIX}/include" \
-CXXFLAGS="-I${ARM_PREFIX}/include" \
-WX_SKIP_DOXYGEN_VERSION_CHECK=true \
-./build.py --arch=arm64 --target package-kicad-unified \
-  --kicad-ref $KICAD_REF \
-  --symbols-ref $SYMBOLS_REF \
-  --footprints-ref $FOOTPRINTS_REF \
-  --packages3d-ref $PACKAGES3D_REF \
-  --release-name $RELEASE_NAME \
-  --docs-tarball-url $DOCS_TARBALL_URL \
-  --templates-ref $TEMPLATES_REF \
-  $MACOS_MIN_VERSION_ARG $RELEASE_ARG
-
+CFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
+    CXXFLAGS="-I/$(/opt/homebrew/bin/brew --prefix)/include" \
+    WX_SKIP_DOXYGEN_VERSION_CHECK=true \
+    ./build.py --arch=arm64 --target package-kicad-unified \
+    --kicad-ref $KICAD_REF --symbols-ref $SYMBOLS_REF --footprints-ref $FOOTPRINTS_REF \
+    --packages3d-ref $PACKAGES3D_REF --release-name $RELEASE_NAME \
+    --docs-tarball-url $DOCS_TARBALL_URL --templates-ref $TEMPLATES_REF \
+    $MACOS_MIN_VERSION_ARG $RELEASE_ARG
 elapsed=$(( SECONDS - start_time ))
 echo "arm64 took $elapsed seconds."
-
 mv build build-arm64
 
-# reduce disk usage
-rm -rf build-arm64/_deps build-arm64/CMakeFiles build-arm64/Testing || true
-
-#########################################################
-# X86 BUILD
-#########################################################
 
 echo "Running build.py for x86_64..."
-
-export PATH="/usr/local/bin:$ORIG_PATH"
-export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-export CPATH="/usr/local/include"
-export LIBRARY_PATH="/usr/local/lib"
-
+# Strip /opt/homebrew from PATH so any subprocess call to `brew` (including
+# from within CMakeLists.txt) resolves to the x86_64 Homebrew at /usr/local.
+X86_PATH=$(echo "$ORIG_PATH" | tr ':' '\n' | grep -v '/opt/homebrew' | tr '\n' ':' | sed 's/:$//')
+export PATH="/usr/local/bin:${X86_PATH}"
 ./ci/src/clean-cmake-builds.sh
-
-INTEL_PREFIX="$(/usr/local/bin/brew --prefix)"
-
 start_time=$SECONDS
-
-arch -x86_64 env \
-  CFLAGS="-I${INTEL_PREFIX}/include" \
-  CXXFLAGS="-I${INTEL_PREFIX}/include" \
-  WX_SKIP_DOXYGEN_VERSION_CHECK=true \
-  ./build.py --arch=x86_64 --target package-kicad-unified \
-    --kicad-ref $KICAD_REF \
-    --symbols-ref $SYMBOLS_REF \
-    --footprints-ref $FOOTPRINTS_REF \
-    --packages3d-ref $PACKAGES3D_REF \
-    --release-name $RELEASE_NAME \
-    --docs-tarball-url $DOCS_TARBALL_URL \
-    --templates-ref $TEMPLATES_REF \
+X86_BREW_PREFIX=$(/usr/local/bin/brew --prefix)
+CFLAGS="-I/${X86_BREW_PREFIX}/include" \
+    CXXFLAGS="-I/${X86_BREW_PREFIX}/include" \
+    LDFLAGS="-L/${X86_BREW_PREFIX}/lib" \
+    WX_SKIP_DOXYGEN_VERSION_CHECK=true arch -x86_64 \
+    ./build.py --arch=x86_64 --target package-kicad-unified \
+    --kicad-ref $KICAD_REF --symbols-ref $SYMBOLS_REF --footprints-ref $FOOTPRINTS_REF \
+    --packages3d-ref $PACKAGES3D_REF --release-name $RELEASE_NAME \
+    --docs-tarball-url $DOCS_TARBALL_URL --templates-ref $TEMPLATES_REF \
     $MACOS_MIN_VERSION_ARG $RELEASE_ARG
-
 elapsed=$(( SECONDS - start_time ))
 echo "x86_64 took $elapsed seconds."
-
 mv build build-x86_64
 
-#########################################################
-# CREATE UNIVERSAL BUNDLE
-#########################################################
-
 echo "Combining arm64 and x86_64 KiCad bundles into a Universal KiCad bundle..."
-
 ditto --arch arm64 build-arm64/kicad-dest build-universal/thinned-arm64
 ditto --arch x86_64 build-x86_64/kicad-dest build-universal/thinned-x86_64
 ditto build-arm64/kicad-dest build-universal/dest
@@ -122,53 +85,34 @@ cd build-universal/dest
 
 for app in *.app; do
   cd "$app"
-
-  find . -type f \
-    ! -name "*.kicad_mod" \
-    ! -name "*.step" \
-    ! -name "*.wrl" \
-    ! -name "*.kicad_sym" \
-    ! -name "*.png" \
-    ! -name "*.py" \
-    ! -name "*.pyc" \
-    ! -name "*.h" \
-    ! -name "*.txt" \
-    ! -name "*.html" \
-    ! -name "*.xml" | while read f; do
-
-    if file "$f" | grep -E 'Mach-O|library' > /dev/null; then
-
-      if [ "$app" == "KiCad.app" ]; then
-        layers="../.."
-      else
-        layers="../../../../.."
-      fi
+  for f in `find . -not -name "*.kicad_mod" -not -name "*.step" -not -name "*.wrl" -not -name "*.kicad_sym" -not -name "*.png" -not -name "*.py" -not -name "*.pyc" -not -name "*.h" -not -name "*.txt" -not -name "*.html" -not -name "*.xml" -type f`; do
+    if file "$f" | grep 'Mach-O\|library' > /dev/null; then
+        if [ "$app" == "KiCad.app" ]; then
+          layers="../.."
+        else
+          layers="../../../../.."
+        fi
 
       THIN_X86_64_VERSION="$layers/thinned-x86_64/$app/$f"
       THIN_ARM64_VERSION="$layers/thinned-arm64/$app/$f"
 
+      # python3.9-intel64 has no arm64 component, so it doesn't show up in the thinned version
       if echo "$f" | grep python3.9-intel64; then
         continue
       fi
 
+      # remove the one we copied in here, so we can replace it with a new version combined of the two source versions
+      # When we just add the "missing" ones, the linker output isn't correct.  See the otool -L output, for instance.
+
       rm "$f"
-
       echo "Combining $THIN_X86_64_VERSION and $THIN_ARM64_VERSION..."
-
-      lipo "$THIN_X86_64_VERSION" "$THIN_ARM64_VERSION" \
-        -create -output "$f"
+      lipo "$THIN_X86_64_VERSION" "$THIN_ARM64_VERSION" -create -output "$f"
     fi
-
   done
-
   cd -
 done
 
 cd ../
-
-#########################################################
-# SIGN UNIVERSAL BUNDLE
-#########################################################
 
 echo "Adhoc-signing Universal bundle..."
 
@@ -176,6 +120,7 @@ echo "Adhoc-signing Universal bundle..."
   --certificate-id - \
   --entitlements "${KICAD_MAC_BUILDER_DIR}/kicad-mac-builder/signing/entitlements.plist" \
   "${KICAD_MAC_BUILDER_DIR}/build-universal/dest/KiCad.app"
+
 
 echo "The adhoc-signed Universal bundles are in build-universal/dest."
 echo "Before these could be distributed, they should be signed with an Apple certificate and notarized."
