@@ -110,11 +110,10 @@ jobs:
       - name: Show disk after build
         run: df -h
 
-      - name: Upload universal DMG to release
+      - name: Upload DMG to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
-          file: ./build/dmg/*.dmg
-          asset_name: kicad-unified-huaqiu-${{ steps.latest-release.outputs.tag }}-macos.dmg
+          file: ./build/dmg/*.dmg  # Upload all DMG files without changing their names
           overwrite: true
           tag: ${{ steps.latest-release.outputs.tag }}
