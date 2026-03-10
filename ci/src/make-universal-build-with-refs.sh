@@ -35,7 +35,13 @@ echo "RELEASE_ARG=${RELEASE_ARG}"
 
 ORIG_PATH="$PATH"
 
-rm -rf build-arm64/ build-x86_64/ build-universal/
+# Use absolute paths for build directories
+BUILD_DIR="$(pwd)/build"
+BUILD_ARM64_DIR="${BUILD_DIR}-arm64"
+BUILD_X86_64_DIR="${BUILD_DIR}-x86_64"
+BUILD_UNIVERSAL_DIR="${BUILD_DIR}-universal"
+
+rm -rf "$BUILD_ARM64_DIR" "$BUILD_X86_64_DIR" "$BUILD_UNIVERSAL_DIR"
 
 #########################################################
 # ARM64 BUILD
@@ -67,10 +73,10 @@ WX_SKIP_DOXYGEN_VERSION_CHECK=true \
 elapsed=$(( SECONDS - start_time ))
 echo "arm64 took $elapsed seconds."
 
-mv build build-arm64
+mv build "$BUILD_ARM64_DIR"
 
 # reduce disk usage
-rm -rf build-arm64/_deps build-arm64/CMakeFiles build-arm64/Testing || true
+rm -rf "$BUILD_ARM64_DIR/_deps" "$BUILD_ARM64_DIR/CMakeFiles" "$BUILD_ARM64_DIR/Testing" || true
 
 #########################################################
 # X86 BUILD
@@ -106,7 +112,7 @@ arch -x86_64 env \
 elapsed=$(( SECONDS - start_time ))
 echo "x86_64 took $elapsed seconds."
 
-mv build build-x86_64
+mv build "$BUILD_X86_64_DIR"
 
 #########################################################
 # CREATE UNIVERSAL BUNDLE
@@ -114,11 +120,12 @@ mv build build-x86_64
 
 echo "Combining arm64 and x86_64 KiCad bundles into a Universal KiCad bundle..."
 
-ditto --arch arm64 build-arm64/kicad-dest build-universal/thinned-arm64
-ditto --arch x86_64 build-x86_64/kicad-dest build-universal/thinned-x86_64
-ditto build-arm64/kicad-dest build-universal/dest
+# Use absolute paths to avoid issues
+ditto --arch arm64 "$BUILD_ARM64_DIR/kicad-dest" "$BUILD_UNIVERSAL_DIR/thinned-arm64"
+ditto --arch x86_64 "$BUILD_X86_64_DIR/kicad-dest" "$BUILD_UNIVERSAL_DIR/thinned-x86_64"
+ditto "$BUILD_ARM64_DIR/kicad-dest" "$BUILD_UNIVERSAL_DIR/dest"
 
-cd build-universal/dest
+cd "$BUILD_UNIVERSAL_DIR/dest"
 
 for app in *.app; do
   cd "$app"
@@ -161,7 +168,7 @@ for app in *.app; do
 
   done
 
-  cd -
+  cd - 
 done
 
 cd ../
@@ -187,16 +194,25 @@ echo "Before these could be distributed, they should be signed with an Apple cer
 
 echo "Creating universal DMG..."
 
-mkdir -p build/dmg
+# Use absolute path for the output DMG
+BUILD_DMG_DIR="$(pwd)/build/dmg"
+mkdir -p "$BUILD_DMG_DIR"
 
 DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
 
+# Ensure the source folder for KiCad.app exists
+if [ ! -d "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" ]; then
+  echo "Error: KiCad.app folder not found in $BUILD_UNIVERSAL_DIR/dest!"
+  exit 1
+fi
+
+# Create the DMG using absolute paths
 hdiutil create \
   -volname "KiCad" \
-  -srcfolder build-universal/dest/KiCad.app \
+  -srcfolder "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" \
   -ov \
   -format UDZO \
-  build/dmg/${DMG_NAME}
+  "$BUILD_DMG_DIR/${DMG_NAME}"
 
 echo "Universal DMG created:"
-echo "build/dmg/${DMG_NAME}"
+echo "$BUILD_DMG_DIR/${DMG_NAME}"
