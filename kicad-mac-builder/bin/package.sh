@@ -1,217 +1,156 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-# This script, unfortunately, uses a lot of environment variables for configuration
-# I'd love to see this redone!
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-# PACKAGE_TYPE must be set to unified (legacy, should handle...)
-# KICAD_INSTALL_DIR used to grab files for the dmg
-# KICAD_SOURCE_DIR used for git sha in filename (see RELEASE_NAME)
-# RELEASE_NAME can be used for dmg naming
-# PACKAGING_DIR directory that TEMPLATE is in, also contains background
-# DMG_DIR output directory that will contain the dmg
-# TEMPLATE filename of template dmg, minus the end .tar.bz2
-
-SCRIPT_DIR=$(dirname "$(stat -f "$0")")
+DEVICE=""
 
 cleanup() {
-    echo "Making sure any mounts are unmounted."
-    if [ -n "${MOUNTPOINT}" ]; then
-        hdiutil detach "${MOUNTPOINT}" || true
-        hdiutil detach -force "${MOUNTPOINT}" || true
+    echo "Cleaning up mounts..."
+
+    if [ -n "${DEVICE:-}" ]; then
+        hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true
     fi
 
-    if [ -n "${MOUNT_NAME}" ]; then
-        hdiutil detach /Volumes/"${MOUNT_NAME}" || true
-        hdiutil detach -force /Volumes/"${MOUNT_NAME}" || true
-        diskutil unmount /Volumes/"${MOUNT_NAME}" || true
+    if [ -n "${MOUNTPOINT:-}" ] && [ -d "${MOUNTPOINT}" ]; then
+        rm -rf "${MOUNTPOINT}" || true
     fi
 }
-
-safe_detach() {
-    local target="$1"
-
-    if [ ! -e "$target" ] && [ ! -d "$target" ]; then
-        return 0
-    fi
-
-    hdiutil detach "$target" >/dev/null 2>&1 && return 0
-    hdiutil detach -force "$target" >/dev/null 2>&1 && return 0
-
-    return 1
-}
-
 
 trap cleanup EXIT
 
-setup_dmg()
-{
-    # make the mountpoint
-    if [ -e "${MOUNTPOINT}" ]; then
-        # it might be a leftover mount from a crashed previous run, so try to unmount it before removing it.
-        hdiutil detach "${MOUNTPOINT}" || true
-        diskutil unmount "${MOUNTPOINT}" || true
-        rm -r "${MOUNTPOINT}"
-    fi
-    mkdir -p "${MOUNTPOINT}"
+attach_dmg() {
+    echo "Attaching template DMG..."
 
-    # untar the template
-    if [ -e "${TEMPLATE}" ]; then
-        rm "${TEMPLATE}"
-    fi
-    tar xf "${PACKAGING_DIR}"/"${TEMPLATE}".tar.bz2
-    if [ ! -e "${TEMPLATE}" ]; then
-        echo "Unable to find ${TEMPLATE}"
+    ATTACH_OUTPUT=$(hdiutil attach "${TEMPLATE}" -noautoopen -mountpoint "${MOUNTPOINT}")
+
+    echo "$ATTACH_OUTPUT"
+
+    DEVICE=$(echo "$ATTACH_OUTPUT" | grep "^/dev/" | head -n1 | awk '{print $1}')
+
+    if [ -z "$DEVICE" ]; then
+        echo "Failed to determine attached device"
         exit 1
     fi
 
-    # resize the template, and mount it
-
-    if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
-        hdiutil resize -limits kicadtemplate.dmg
-        hdiutil resize -sectors 10167525 "${TEMPLATE}"
-        hdiutil resize -limits kicadtemplate.dmg
-        if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
-          echo "Cannot resize template dmg, exiting."
-          exit 1
-        fi
-    fi
-    diskutil unmount /Volumes/"${MOUNT_NAME}" || true
-    hdiutil attach "${TEMPLATE}" -noautoopen -mountpoint "${MOUNTPOINT}"
+    echo "Mounted device: $DEVICE"
 }
 
+detach_dmg() {
+    echo "Detaching $DEVICE"
 
-fixup_and_cleanup()
-{
-    # update background of the DMG
-    cp "${PACKAGING_DIR}"/background.png "${MOUNTPOINT}"/.
-    # Rehide the background file
-    SetFile -a V "${MOUNTPOINT}"/background.png
-
-    UNMOUNTED=1
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if safe_detach "${MOUNTPOINT}" || safe_detach "/Volumes/${MOUNT_NAME}"; then
-          UNMOUNTED=0
-          break
-        else
-          echo "Retrying..."
-          lsof "${MOUNTPOINT}" || true
-          [ -d "/Volumes/${MOUNT_NAME}" ] && lsof "/Volumes/${MOUNT_NAME}" || true
-          sync || true
-          sleep 10
+    for i in {1..10}; do
+        if hdiutil detach "$DEVICE" >/dev/null 2>&1; then
+            DEVICE=""
+            return
         fi
+
+        echo "Retry detach ($i)..."
+        sleep 3
     done
-    if [ $UNMOUNTED -ne 0 ]; then
-        echo "Error unmounting ${MOUNTPOINT}"
+
+    echo "Force detaching..."
+    hdiutil detach -force "$DEVICE" || true
+    DEVICE=""
+}
+
+setup_dmg() {
+
+    rm -rf "${MOUNTPOINT}"
+    mkdir -p "${MOUNTPOINT}"
+
+    echo "Extracting DMG template..."
+
+    rm -f "${TEMPLATE}"
+    tar xf "${PACKAGING_DIR}/${TEMPLATE}.tar.bz2"
+
+    if [ ! -f "${TEMPLATE}" ]; then
+        echo "Template extraction failed"
         exit 1
     fi
 
-    rm -r "${MOUNTPOINT}"
+    echo "Resizing template..."
 
-    #set it so the DMG autoopens on download/mount for supported platforms (x86)
-    hdiutil attach "${TEMPLATE}" -noautoopen -nobrowse -mountpoint /Volumes/"${MOUNT_NAME}"
-    if ! sysctl -n machdep.cpu.brand_string | grep Apple > /dev/null; then
-      # we have to be careful how we detect the arch--we may be in rosetta!
-      bless /Volumes/"${MOUNT_NAME}" --openfolder /Volumes/"${MOUNT_NAME}"
+    if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
+        echo "Resize failed — retrying with fallback"
+        hdiutil resize -sectors 10167525 "${TEMPLATE}"
+        hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"
     fi
 
-    UNMOUNTED=1
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if safe_detach "${MOUNTPOINT}" || safe_detach "/Volumes/${MOUNT_NAME}"; then
-          UNMOUNTED=0
-          break
-        else
-          echo "Retrying..."
-          [ -d "/Volumes/${MOUNT_NAME}" ] && lsof "/Volumes/${MOUNT_NAME}" || true
-          sync || true
-          sleep 10
-        fi
-    done
-    if [ $UNMOUNTED -ne 0 ]; then
-        echo "Error unmounting /Volumes/${MOUNT_NAME}"
-        exit 1
+    attach_dmg
+}
+
+fixup_and_cleanup() {
+
+    echo "Updating background"
+
+    cp "${PACKAGING_DIR}/background.png" "${MOUNTPOINT}/."
+    SetFile -a V "${MOUNTPOINT}/background.png"
+
+    echo "Syncing filesystem"
+    sync
+    sleep 2
+
+    detach_dmg
+
+    echo "Reattaching to set auto-open"
+
+    ATTACH_OUTPUT=$(hdiutil attach "${TEMPLATE}" -noautoopen -nobrowse)
+    DEVICE=$(echo "$ATTACH_OUTPUT" | grep "^/dev/" | head -n1 | awk '{print $1}')
+
+    if ! sysctl -n machdep.cpu.brand_string | grep Apple >/dev/null; then
+        bless /Volumes/"${MOUNT_NAME}" --openfolder /Volumes/"${MOUNT_NAME}" || true
     fi
 
-    if [ -e "${DMG_NAME}" ] ; then
-        rm -r "${DMG_NAME}"
+    sync
+    sleep 2
+
+    detach_dmg
+
+    echo "Converting DMG"
+
+    if [ -f "${DMG_NAME}" ]; then
+        rm -f "${DMG_NAME}"
     fi
 
-    hdiutil convert "${TEMPLATE}"  -format UDZO -imagekey zlib-level=9 -o "${DMG_NAME}"
+    hdiutil convert "${TEMPLATE}" \
+        -format UDZO \
+        -imagekey zlib-level=9 \
+        -o "${DMG_NAME}"
 
-    rm "${TEMPLATE}"
+    rm -f "${TEMPLATE}"
 
-    if [ -n "${SIGNING_IDENTITY}" ]; then
-      codesign --sign "${SIGNING_IDENTITY}" --verbose "${DMG_NAME}"
-    fi
-
-    if [ -n "${SIGNING_IDENTITY}" ] && [ -n "${APPLE_DEVELOPER_USERNAME}" ] && [ -n "${APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME}" ] && [ -n "${DMG_NOTARIZATION_ID}" ] && [ -n "${ASC_PROVIDER}" ]; then
-      "${SCRIPT_DIR}/apple.py" notarize \
-          --apple-developer-username "${APPLE_DEVELOPER_USERNAME}" \
-          --apple-developer-password-keychain-name "${APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME}" \
-          --notarization-id "${DMG_NOTARIZATION_ID}" \
-          --asc-provider "${ASC_PROVIDER}" \
-          "${DMG_NAME}"
+    if [ -n "${SIGNING_IDENTITY:-}" ]; then
+        codesign --sign "${SIGNING_IDENTITY}" --verbose "${DMG_NAME}"
     fi
 
     mkdir -p "${DMG_DIR}"
 
-    if ! mv "${DMG_NAME}" "${DMG_DIR}/"; then
-        echo "Error moving DMG to ${DMG_DIR}"
-        exit 1
-    fi
-}
+    mv "${DMG_NAME}" "${DMG_DIR}/"
 
-set -x
+    echo "DMG created: ${DMG_DIR}/${DMG_NAME}"
+}
 
 echo "PACKAGING_DIR: ${PACKAGING_DIR}"
 echo "KICAD_SOURCE_DIR: ${KICAD_SOURCE_DIR}"
 echo "KICAD_INSTALL_DIR: ${KICAD_INSTALL_DIR}"
-echo "VERBOSE: ${VERBOSE}"
 echo "TEMPLATE: ${TEMPLATE}"
 echo "DMG_DIR: ${DMG_DIR}"
 echo "PACKAGE_TYPE: ${PACKAGE_TYPE}"
 
-if [ -n "${RELEASE_NAME}" ]; then
-    echo "RELEASE_NAME: ${RELEASE_NAME}"
-else
-    echo "RELEASE_NAME: unspecified"
-fi
-
-echo "SIGNING_IDENTITY: ${SIGNING_IDENTITY}"
-echo "APPLE_DEVELOPER_USERNAME: ${APPLE_DEVELOPER_USERNAME}"
-echo "APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME: ${APPLE_DEVELOPER_PASSWORD_KEYCHAIN_NAME}"
-echo "DMG_NOTARIZATION_ID: ${DMG_NOTARIZATION_ID}"
-echo "ASC_PROVIDER: ${ASC_PROVIDER}"
-echo "pwd: $(pwd)"
-
-if [ ! -e "${PACKAGING_DIR}" ]; then
-    echo "PACKAGING_DIR must be set and exist."
+if [ ! -d "${PACKAGING_DIR}" ]; then
+    echo "PACKAGING_DIR must exist"
     exit 1
 fi
 
 if [ -z "${TEMPLATE}" ]; then
-    echo "TEMPLATE must be set."
+    echo "TEMPLATE must be set"
     exit 1
 fi
 
 if [ -z "${DMG_DIR}" ]; then
-    echo "DMG_DIR must be set."
-    exit 1
-fi
-
-if [ "${PACKAGE_TYPE}" != "nightly" ] && [ "${PACKAGE_TYPE}" != "extras" ] && [ "${PACKAGE_TYPE}" != "unified" ]; then
-    echo "PACKAGE_TYPE must be either \"nightly\", \"extras\", or \"unified\"."
-    exit 1
-fi
-
-if [ "${PACKAGE_TYPE}" != "extras" ] && [ ! -e "${KICAD_SOURCE_DIR}" ]; then
-    echo "In nightly and unified, KICAD_SOURCE_DIR must be set and exist."
-    exit 1
-fi
-
-if [ "${PACKAGE_TYPE}" != "extras" ] && [ ! -e "${KICAD_INSTALL_DIR}" ]; then
-    echo "In nightly and unified, KICAD_INSTALL_DIR must be set and exist."
+    echo "DMG_DIR must be set"
     exit 1
 fi
 
@@ -219,26 +158,35 @@ NOW=$(date +%Y%m%d-%H%M%S)
 
 case "${PACKAGE_TYPE}" in
     unified)
+
         KICAD_GIT_REV=$(cd "${KICAD_SOURCE_DIR}" && git rev-parse --short HEAD)
-        MOUNT_NAME='KiCad'
+
+        MOUNT_NAME="KiCad"
+        MOUNTPOINT="kicad-mnt"
+
         DMG_SIZE=15567525
-        if [ -z "$RELEASE_NAME" ]; then
-            DMG_NAME=kicad-unified-"${NOW}"-"${KICAD_GIT_REV}".dmg
+
+        if [ -z "${RELEASE_NAME:-}" ]; then
+            DMG_NAME="kicad-unified-${NOW}-${KICAD_GIT_REV}.dmg"
         else
-            DMG_NAME=kicad-unified-"${RELEASE_NAME}".dmg
+            DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
         fi
+    ;;
+    *)
+        echo "Unsupported PACKAGE_TYPE"
+        exit 1
     ;;
 esac
 
-MOUNTPOINT=kicad-mnt
-
 setup_dmg
 
-mkdir -p "${MOUNTPOINT}"/KiCad
-rsync -al "${KICAD_INSTALL_DIR}"/* "${MOUNTPOINT}"/KiCad/.
+mkdir -p "${MOUNTPOINT}/KiCad"
+
+rsync -al "${KICAD_INSTALL_DIR}/" "${MOUNTPOINT}/KiCad/"
+
 echo "Moving demos"
-mv "${MOUNTPOINT}"/KiCad/demos "${MOUNTPOINT}"/
+mv "${MOUNTPOINT}/KiCad/demos" "${MOUNTPOINT}/" || true
 
 fixup_and_cleanup
 
-echo "Done creating ${DMG_NAME} in ${DMG_DIR}"
+echo "Done creating ${DMG_NAME}"
