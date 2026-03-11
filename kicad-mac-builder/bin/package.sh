@@ -2,191 +2,85 @@
 
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# Required environment variables
+: "${KICAD_INSTALL_DIR:?Need KICAD_INSTALL_DIR}"
+: "${PACKAGING_DIR:?Need PACKAGING_DIR}"
+: "${DMG_DIR:?Need DMG_DIR}"
+: "${RELEASE_NAME:?Need RELEASE_NAME}"
 
-DEVICE=""
+MOUNT_NAME="KiCad"
+TMP_DMG="temp_kicad.dmg"
+FINAL_DMG="kicad-unified-${RELEASE_NAME}.dmg"
 
-cleanup() {
-    echo "Cleaning up mounts..."
+WORK_DIR=$(pwd)
+STAGING_DIR="$WORK_DIR/dmg-root"
 
-    if [ -n "${DEVICE:-}" ]; then
-        hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true
-    fi
+echo "Preparing DMG staging directory..."
 
-    if [ -n "${MOUNTPOINT:-}" ] && [ -d "${MOUNTPOINT}" ]; then
-        rm -rf "${MOUNTPOINT}" || true
-    fi
-}
+rm -rf "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
 
-trap cleanup EXIT
+echo "Copying KiCad apps..."
 
-attach_dmg() {
-    echo "Attaching template DMG..."
+mkdir -p "$STAGING_DIR/KiCad"
+rsync -a "$KICAD_INSTALL_DIR/" "$STAGING_DIR/KiCad/"
 
-    ATTACH_OUTPUT=$(hdiutil attach "${TEMPLATE}" -noautoopen -mountpoint "${MOUNTPOINT}")
-
-    echo "$ATTACH_OUTPUT"
-
-    DEVICE=$(echo "$ATTACH_OUTPUT" | grep "^/dev/" | head -n1 | awk '{print $1}')
-
-    if [ -z "$DEVICE" ]; then
-        echo "Failed to determine attached device"
-        exit 1
-    fi
-
-    echo "Mounted device: $DEVICE"
-}
-
-detach_dmg() {
-    echo "Detaching $DEVICE"
-
-    for i in {1..10}; do
-        if hdiutil detach "$DEVICE" >/dev/null 2>&1; then
-            DEVICE=""
-            return
-        fi
-
-        echo "Retry detach ($i)..."
-        sleep 3
-    done
-
-    echo "Force detaching..."
-    hdiutil detach -force "$DEVICE" || true
-    DEVICE=""
-}
-
-setup_dmg() {
-
-    rm -rf "${MOUNTPOINT}"
-    mkdir -p "${MOUNTPOINT}"
-
-    echo "Extracting DMG template..."
-
-    rm -f "${TEMPLATE}"
-    tar xf "${PACKAGING_DIR}/${TEMPLATE}.tar.bz2"
-
-    if [ ! -f "${TEMPLATE}" ]; then
-        echo "Template extraction failed"
-        exit 1
-    fi
-
-    echo "Resizing template..."
-
-    if ! hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"; then
-        echo "Resize failed — retrying with fallback"
-        hdiutil resize -sectors 10167525 "${TEMPLATE}"
-        hdiutil resize -sectors "${DMG_SIZE}" "${TEMPLATE}"
-    fi
-
-    attach_dmg
-}
-
-fixup_and_cleanup() {
-
-    echo "Updating background"
-
-    cp "${PACKAGING_DIR}/background.png" "${MOUNTPOINT}/."
-    SetFile -a V "${MOUNTPOINT}/background.png"
-
-    echo "Syncing filesystem"
-    sync
-    sleep 2
-
-    detach_dmg
-
-    echo "Reattaching to set auto-open"
-
-    ATTACH_OUTPUT=$(hdiutil attach "${TEMPLATE}" -noautoopen -nobrowse)
-    DEVICE=$(echo "$ATTACH_OUTPUT" | grep "^/dev/" | head -n1 | awk '{print $1}')
-
-    if ! sysctl -n machdep.cpu.brand_string | grep Apple >/dev/null; then
-        bless /Volumes/"${MOUNT_NAME}" --openfolder /Volumes/"${MOUNT_NAME}" || true
-    fi
-
-    sync
-    sleep 2
-
-    detach_dmg
-
-    echo "Converting DMG"
-
-    if [ -f "${DMG_NAME}" ]; then
-        rm -f "${DMG_NAME}"
-    fi
-
-    hdiutil convert "${TEMPLATE}" \
-        -format UDZO \
-        -imagekey zlib-level=9 \
-        -o "${DMG_NAME}"
-
-    rm -f "${TEMPLATE}"
-
-    if [ -n "${SIGNING_IDENTITY:-}" ]; then
-        codesign --sign "${SIGNING_IDENTITY}" --verbose "${DMG_NAME}"
-    fi
-
-    mkdir -p "${DMG_DIR}"
-
-    mv "${DMG_NAME}" "${DMG_DIR}/"
-
-    echo "DMG created: ${DMG_DIR}/${DMG_NAME}"
-}
-
-echo "PACKAGING_DIR: ${PACKAGING_DIR}"
-echo "KICAD_SOURCE_DIR: ${KICAD_SOURCE_DIR}"
-echo "KICAD_INSTALL_DIR: ${KICAD_INSTALL_DIR}"
-echo "TEMPLATE: ${TEMPLATE}"
-echo "DMG_DIR: ${DMG_DIR}"
-echo "PACKAGE_TYPE: ${PACKAGE_TYPE}"
-
-if [ ! -d "${PACKAGING_DIR}" ]; then
-    echo "PACKAGING_DIR must exist"
-    exit 1
+if [ -d "$STAGING_DIR/KiCad/demos" ]; then
+    mv "$STAGING_DIR/KiCad/demos" "$STAGING_DIR/"
 fi
 
-if [ -z "${TEMPLATE}" ]; then
-    echo "TEMPLATE must be set"
-    exit 1
-fi
+cp "$PACKAGING_DIR/background.png" "$STAGING_DIR/"
 
-if [ -z "${DMG_DIR}" ]; then
-    echo "DMG_DIR must be set"
-    exit 1
-fi
+echo "Creating writable DMG..."
 
-NOW=$(date +%Y%m%d-%H%M%S)
+SIZE=$(du -sh "$STAGING_DIR" | awk '{print $1}')
 
-case "${PACKAGE_TYPE}" in
-    unified)
+hdiutil create \
+  -volname "$MOUNT_NAME" \
+  -srcfolder "$STAGING_DIR" \
+  -ov \
+  -format UDRW \
+  "$TMP_DMG"
 
-        KICAD_GIT_REV=$(cd "${KICAD_SOURCE_DIR}" && git rev-parse --short HEAD)
+echo "Mounting DMG..."
 
-        MOUNT_NAME="KiCad"
-        MOUNTPOINT="kicad-mnt"
+ATTACH_OUTPUT=$(hdiutil attach "$TMP_DMG" -noautoopen)
+DEVICE=$(echo "$ATTACH_OUTPUT" | grep "^/dev/" | head -n1 | awk '{print $1}')
 
-        DMG_SIZE=15567525
+echo "Mounted device: $DEVICE"
 
-        if [ -z "${RELEASE_NAME:-}" ]; then
-            DMG_NAME="kicad-unified-${NOW}-${KICAD_GIT_REV}.dmg"
-        else
-            DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
-        fi
-    ;;
-    *)
-        echo "Unsupported PACKAGE_TYPE"
-        exit 1
-    ;;
-esac
+MOUNT_POINT="/Volumes/$MOUNT_NAME"
 
-setup_dmg
+sleep 2
 
-mkdir -p "${MOUNTPOINT}/KiCad"
+echo "Applying Finder background..."
 
-rsync -al "${KICAD_INSTALL_DIR}/" "${MOUNTPOINT}/KiCad/"
+mkdir -p "$MOUNT_POINT/.background"
+mv "$MOUNT_POINT/background.png" "$MOUNT_POINT/.background/"
 
-echo "Moving demos"
-mv "${MOUNTPOINT}/KiCad/demos" "${MOUNTPOINT}/" || true
+SetFile -a V "$MOUNT_POINT/.background/background.png" || true
 
-fixup_and_cleanup
+sync
+sleep 2
 
-echo "Done creating ${DMG_NAME}"
+echo "Detaching..."
+
+hdiutil detach "$DEVICE"
+
+sleep 2
+
+echo "Compressing DMG..."
+
+hdiutil convert "$TMP_DMG" \
+  -format UDZO \
+  -imagekey zlib-level=9 \
+  -o "$FINAL_DMG"
+
+rm "$TMP_DMG"
+
+mkdir -p "$DMG_DIR"
+mv "$FINAL_DMG" "$DMG_DIR/"
+
+echo ""
+echo "✅ DMG created successfully:"
+echo "$DMG_DIR/$FINAL_DMG"
