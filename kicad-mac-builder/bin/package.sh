@@ -28,6 +28,21 @@ cleanup() {
         diskutil unmount /Volumes/"${MOUNT_NAME}" || true
     fi
 }
+
+safe_detach() {
+    local target="$1"
+
+    if [ ! -e "$target" ] && [ ! -d "$target" ]; then
+        return 0
+    fi
+
+    hdiutil detach "$target" >/dev/null 2>&1 && return 0
+    hdiutil detach -force "$target" >/dev/null 2>&1 && return 0
+
+    return 1
+}
+
+
 trap cleanup EXIT
 
 setup_dmg()
@@ -76,16 +91,13 @@ fixup_and_cleanup()
 
     UNMOUNTED=1
     for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if hdiutil detach "${MOUNTPOINT}" \
-            || hdiutil detach "/Volumes/${MOUNT_NAME}" \
-            || hdiutil detach -force "${MOUNTPOINT}" \
-            || hdiutil detach -force "/Volumes/${MOUNT_NAME}"; then
+        if safe_detach "${MOUNTPOINT}" || safe_detach "/Volumes/${MOUNT_NAME}"; then
           UNMOUNTED=0
           break
         else
           echo "Retrying..."
           lsof "${MOUNTPOINT}" || true
-          lsof "/Volumes/${MOUNT_NAME}" || true
+          [ -d "/Volumes/${MOUNT_NAME}" ] && lsof "/Volumes/${MOUNT_NAME}" || true
           sync || true
           sleep 10
         fi
@@ -106,15 +118,12 @@ fixup_and_cleanup()
 
     UNMOUNTED=1
     for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        if hdiutil detach "/Volumes/${MOUNT_NAME}" \
-            || hdiutil detach -force "/Volumes/${MOUNT_NAME}" \
-            || hdiutil detach "${MOUNTPOINT}" \
-            || hdiutil detach -force "${MOUNTPOINT}"; then
+        if safe_detach "${MOUNTPOINT}" || safe_detach "/Volumes/${MOUNT_NAME}"; then
           UNMOUNTED=0
           break
         else
           echo "Retrying..."
-          lsof "/Volumes/${MOUNT_NAME}" || true
+          [ -d "/Volumes/${MOUNT_NAME}" ] && lsof "/Volumes/${MOUNT_NAME}" || true
           sync || true
           sleep 10
         fi
@@ -147,12 +156,9 @@ fixup_and_cleanup()
 
     mkdir -p "${DMG_DIR}"
 
-    output="$(mv "${DMG_NAME}" "${DMG_DIR}"/ 2>&1 || true)"
-    if [ ! $? ]; then
-        if ! echo "$line" | grep ' are identical$'; then
-            echo "Error: ${output}"
-            exit 1
-        fi
+    if ! mv "${DMG_NAME}" "${DMG_DIR}/"; then
+        echo "Error moving DMG to ${DMG_DIR}"
+        exit 1
     fi
 }
 
