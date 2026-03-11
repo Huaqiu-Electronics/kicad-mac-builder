@@ -110,10 +110,32 @@ jobs:
       - name: Show disk after build
         run: df -h
 
+      - name: Collect and rename DMGs
+        run: |
+          mkdir -p release-dmg
+
+          for f in build-arm64/dmg/*.dmg; do
+            name=$(basename "$f" .dmg)
+            cp "$f" "release-dmg/${name}-arm64.dmg"
+          done || true
+
+          for f in build-x86_64/dmg/*.dmg; do
+            name=$(basename "$f" .dmg)
+            cp "$f" "release-dmg/${name}-x86_64.dmg"
+          done || true
+
+          for f in build-universal/build/dmg/*.dmg; do
+            name=$(basename "$f" .dmg)
+            cp "$f" "release-dmg/${name}-universal.dmg"
+          done || true
+
+          echo "Final DMGs:"
+          ls -lh release-dmg        
+
       - name: Upload DMG to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
-          file: ./build/dmg/*.dmg  # Upload all DMG files without changing their names
+          file: release-dmg/*.dmg
           overwrite: true
           tag: ${{ steps.latest-release.outputs.tag }}
