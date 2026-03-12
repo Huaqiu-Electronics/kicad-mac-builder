@@ -195,24 +195,60 @@ echo "Before these could be distributed, they should be signed with an Apple cer
 echo "Creating universal DMG..."
 
 # Use absolute path for the output DMG
-BUILD_DMG_DIR="$(pwd)/build/dmg"
+BUILD_DMG_DIR="${BUILD_UNIVERSAL_DIR}/build/dmg"
 mkdir -p "$BUILD_DMG_DIR"
 
 DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
 
-# Ensure the source folder for KiCad.app exists
-if [ ! -d "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" ]; then
-  echo "Error: KiCad.app folder not found in $BUILD_UNIVERSAL_DIR/dest!"
+SRC_APP="${BUILD_UNIVERSAL_DIR}/dest/KiCad.app"
+
+if [ ! -d "$SRC_APP" ]; then
+  echo "Error: KiCad.app folder not found in $SRC_APP"
   exit 1
 fi
 
-# Create the DMG using absolute paths
+#########################################################
+# Copy app to temporary staging directory (CI-safe)
+#########################################################
+
+echo "Creating temporary DMG staging directory..."
+
+TMP_DMG_DIR=$(mktemp -d)
+
+echo "Copying KiCad.app to staging directory..."
+cp -R "$SRC_APP" "$TMP_DMG_DIR/"
+
+echo "Waiting for filesystem to settle..."
+sync
+sleep 5
+
+#########################################################
+# Clean up possible CI leftovers
+#########################################################
+
+echo "Cleaning leftover disk image helpers..."
+
+pkill -f diskimages-helper || true
+pkill -f hdiutil || true
+
+#########################################################
+# Create DMG from staging folder
+#########################################################
+
+echo "Building DMG..."
+
 hdiutil create \
   -volname "KiCad" \
-  -srcfolder "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" \
+  -srcfolder "$TMP_DMG_DIR" \
   -ov \
   -format UDZO \
-  "$BUILD_DMG_DIR/${DMG_NAME}"
+  "${BUILD_DMG_DIR}/${DMG_NAME}"
+
+#########################################################
+# Cleanup
+#########################################################
+
+rm -rf "$TMP_DMG_DIR"
 
 echo "Universal DMG created:"
-echo "$BUILD_DMG_DIR/${DMG_NAME}"
+echo "${BUILD_DMG_DIR}/${DMG_NAME}"
