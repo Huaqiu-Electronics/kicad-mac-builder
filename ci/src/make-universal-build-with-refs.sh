@@ -173,25 +173,6 @@ done
 
 cd ../
 
-
-#########################################################
-# CLEAN UNIVERSAL BUNDLE BEFORE SIGNING
-#########################################################
-
-echo "Sanitizing Universal bundle..."
-
-APP_PATH="${BUILD_UNIVERSAL_DIR}/dest/KiCad.app"
-
-# remove macOS metadata that breaks codesign
-find "$APP_PATH" -name ".DS_Store" -delete || true
-find "$APP_PATH" -name "__MACOSX" -delete || true
-
-# remove extended attributes
-xattr -cr "$APP_PATH" || true
-
-# ensure readable permissions
-chmod -R u+rw "$APP_PATH" || true
-
 #########################################################
 # SIGN UNIVERSAL BUNDLE
 #########################################################
@@ -214,60 +195,24 @@ echo "Before these could be distributed, they should be signed with an Apple cer
 echo "Creating universal DMG..."
 
 # Use absolute path for the output DMG
-BUILD_DMG_DIR="${BUILD_UNIVERSAL_DIR}/build/dmg"
+BUILD_DMG_DIR="$(pwd)/build/dmg"
 mkdir -p "$BUILD_DMG_DIR"
 
 DMG_NAME="kicad-unified-${RELEASE_NAME}.dmg"
 
-SRC_APP="${BUILD_UNIVERSAL_DIR}/dest/KiCad.app"
-
-if [ ! -d "$SRC_APP" ]; then
-  echo "Error: KiCad.app folder not found in $SRC_APP"
+# Ensure the source folder for KiCad.app exists
+if [ ! -d "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" ]; then
+  echo "Error: KiCad.app folder not found in $BUILD_UNIVERSAL_DIR/dest!"
   exit 1
 fi
 
-#########################################################
-# Copy app to temporary staging directory (CI-safe)
-#########################################################
-
-echo "Creating temporary DMG staging directory..."
-
-TMP_DMG_DIR=$(mktemp -d)
-
-echo "Copying KiCad.app to staging directory..."
-cp -R "$SRC_APP" "$TMP_DMG_DIR/"
-
-echo "Waiting for filesystem to settle..."
-sync
-sleep 5
-
-#########################################################
-# Clean up possible CI leftovers
-#########################################################
-
-echo "Cleaning leftover disk image helpers..."
-
-pkill -f diskimages-helper || true
-pkill -f hdiutil || true
-
-#########################################################
-# Create DMG from staging folder
-#########################################################
-
-echo "Building DMG..."
-
+# Create the DMG using absolute paths
 hdiutil create \
   -volname "KiCad" \
-  -srcfolder "$TMP_DMG_DIR" \
+  -srcfolder "$BUILD_UNIVERSAL_DIR/dest/KiCad.app" \
   -ov \
   -format UDZO \
-  "${BUILD_DMG_DIR}/${DMG_NAME}"
-
-#########################################################
-# Cleanup
-#########################################################
-
-rm -rf "$TMP_DMG_DIR"
+  "$BUILD_DMG_DIR/${DMG_NAME}"
 
 echo "Universal DMG created:"
-echo "${BUILD_DMG_DIR}/${DMG_NAME}"
+echo "$BUILD_DMG_DIR/${DMG_NAME}"
