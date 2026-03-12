@@ -173,6 +173,25 @@ done
 
 cd ../
 
+
+#########################################################
+# CLEAN UNIVERSAL BUNDLE BEFORE SIGNING
+#########################################################
+
+echo "Sanitizing Universal bundle..."
+
+APP_PATH="${BUILD_UNIVERSAL_DIR}/dest/KiCad.app"
+
+# remove macOS metadata that breaks codesign
+find "$APP_PATH" -name ".DS_Store" -delete || true
+find "$APP_PATH" -name "__MACOSX" -delete || true
+
+# remove extended attributes
+xattr -cr "$APP_PATH" || true
+
+# ensure readable permissions
+chmod -R u+rw "$APP_PATH" || true
+
 #########################################################
 # SIGN UNIVERSAL BUNDLE
 #########################################################
