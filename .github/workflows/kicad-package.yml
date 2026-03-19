@@ -90,7 +90,7 @@ jobs:
       - name: Build KiCad
         env:
           TAG: ${{ steps.latest-release.outputs.tag }}
-          KICAD_REF: release/10.0
+          KICAD_REF: release/9.0
           EXTRA_VERSION: -huaqiu
           RELEASE_ARG: --release
           SYMBOLS_REF: ${{ steps.latest-release.outputs.tag }}
