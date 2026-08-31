@@ -139,80 +139,43 @@ echo "Installing pinned nng 1.12.0..."
 
 # historical nng installation follows...
 
-# Historical nng 1.12.0 installation...
-
 
 # ---------------------------------------------------------------------------
 # Install known-good nng 1.12.0
 # ---------------------------------------------------------------------------
 
 NNG_COMMIT="58656612e45244656656414088afd240fd85de08"
-NNG_FORMULA="Formula/n/nng.rb"
-BREW_CORE_REPO="/usr/local/Homebrew/Library/Taps/homebrew/homebrew-core"
-NNG_FORMULA_PATH="${BREW_CORE_REPO}/${NNG_FORMULA}"
+NNG_FORMULA_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/${NNG_COMMIT}/Formula/n/nng.rb"
+NNG_FORMULA_PATH="$(mktemp "${TMPDIR:-/tmp}/nng.XXXXXX.rb")"
 
 echo "Preparing nng 1.12.0 from homebrew-core commit ${NNG_COMMIT}..."
+echo "Formula: ${NNG_FORMULA_URL}"
 
+# Download the historical formula.
+curl -fsSL \
+  "${NNG_FORMULA_URL}" \
+  -o "${NNG_FORMULA_PATH}"
 
-# Make sure the homebrew-core repository exists.
-if [ ! -d "${BREW_CORE_REPO}/.git" ]; then
-  echo "homebrew-core git repository not found."
+echo "Downloaded historical nng formula:"
+cat "${NNG_FORMULA_PATH}"
 
-  echo "Tapping homebrew/core..."
-  arch -x86_64 "${BREW}" tap homebrew/core
-fi
-
-
-# Fetch the exact historical commit without changing the current branch.
-echo "Fetching historical homebrew-core commit..."
-
-git -C "${BREW_CORE_REPO}" fetch \
-  --no-tags \
-  origin \
-  "${NNG_COMMIT}"
-
-
-# Save the current nng formula so the tap can be restored after installation.
-NNG_FORMULA_BACKUP="$(mktemp)"
-
-restore_nng_formula() {
-  echo "Restoring current nng formula..."
-
-  if [ -f "${NNG_FORMULA_BACKUP}" ]; then
-    cp "${NNG_FORMULA_BACKUP}" "${NNG_FORMULA_PATH}"
-    rm -f "${NNG_FORMULA_BACKUP}"
-  fi
-}
-
-trap restore_nng_formula EXIT
-
-
-if [ -f "${NNG_FORMULA_PATH}" ]; then
-  cp "${NNG_FORMULA_PATH}" "${NNG_FORMULA_BACKUP}"
-fi
-
-
-# Replace only nng.rb with the historical 1.12.0 formula.
-echo "Using historical nng formula..."
-
-git -C "${BREW_CORE_REPO}" show \
-  "${NNG_COMMIT}:${NNG_FORMULA}" \
-  > "${NNG_FORMULA_PATH}"
-
-
-# Verify the formula version before installing.
-echo "Historical nng formula:"
-grep -E 'version|stable|bottle' "${NNG_FORMULA_PATH}" | head -20 || true
-
-
-# Install the historical formula explicitly from the local checkout.
+# Install the historical formula.
 #
-# Using the local formula avoids asking the current Homebrew API for the
-# current nng formula (1.12.4).
-#
-echo "Installing nng 1.12.0..."
+# Homebrew no longer accepts the raw GitHub URL directly as a formula
+# argument, so download it first and install the local formula file.
+echo "Installing pinned nng 1.12.0..."
 
 arch -x86_64 "${BREW}" install "${NNG_FORMULA_PATH}"
+
+# Verify the installed version.
+echo "Installed nng version:"
+arch -x86_64 "${BREW}" list --versions nng
+
+echo "nng information:"
+arch -x86_64 "${BREW}" info nng
+
+# Remove temporary formula.
+rm -f "${NNG_FORMULA_PATH}"
 
 
 # Verify the installed version.
