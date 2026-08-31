@@ -123,9 +123,21 @@ arch -x86_64 "${BREW}" update
 # This is the version used by the previously successful KiCad build.
 #
 
-BREW_DEPS_WITHOUT_NNG=("${BREW_DEPS[@]/nng}")
+echo "Installing KiCad dependencies..."
+
+BREW_DEPS_WITHOUT_NNG=()
+
+for dep in "${BREW_DEPS[@]}"; do
+  if [ "$dep" != "nng" ]; then
+    BREW_DEPS_WITHOUT_NNG+=("$dep")
+  fi
+done
 
 arch -x86_64 "${BREW}" install "${BREW_DEPS_WITHOUT_NNG[@]}"
+
+echo "Installing pinned nng 1.12.0..."
+
+# historical nng installation follows...
 
 # Historical nng 1.12.0 installation...
 
