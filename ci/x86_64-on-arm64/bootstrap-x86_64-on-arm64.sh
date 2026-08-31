@@ -137,48 +137,38 @@ arch -x86_64 "${BREW}" install "${BREW_DEPS_WITHOUT_NNG[@]}"
 
 echo "Installing pinned nng 1.12.0..."
 
-# historical nng installation follows...
-
-
 # ---------------------------------------------------------------------------
 # Install known-good nng 1.12.0
 # ---------------------------------------------------------------------------
 
 NNG_COMMIT="58656612e45244656656414088afd240fd85de08"
 NNG_FORMULA_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/${NNG_COMMIT}/Formula/n/nng.rb"
-NNG_FORMULA_PATH="$(mktemp "${TMPDIR:-/tmp}/nng.XXXXXX.rb")"
 
-echo "Preparing nng 1.12.0 from homebrew-core commit ${NNG_COMMIT}..."
-echo "Formula: ${NNG_FORMULA_URL}"
+NNG_TAP="huaqiu/nng-pin"
 
-# Download the historical formula.
+echo "Preparing pinned nng 1.12.0..."
+echo "  Commit: ${NNG_COMMIT}"
+echo "  Formula: ${NNG_FORMULA_URL}"
+
+if ! arch -x86_64 "${BREW}" tap | grep -q "^${NNG_TAP}$"; then
+  echo "Creating temporary Homebrew tap: ${NNG_TAP}"
+  arch -x86_64 "${BREW}" tap-new "${NNG_TAP}"
+fi
+
+NNG_TAP_PATH="$(
+  arch -x86_64 "${BREW}" --repository
+)/Library/Taps/huaqiu/homebrew-nng-pin"
+
+NNG_FORMULA_PATH="${NNG_TAP_PATH}/Formula/nng.rb"
+
 curl -fsSL \
   "${NNG_FORMULA_URL}" \
   -o "${NNG_FORMULA_PATH}"
 
-echo "Downloaded historical nng formula:"
-cat "${NNG_FORMULA_PATH}"
+echo "Installing nng 1.12.0..."
 
-# Install the historical formula.
-#
-# Homebrew no longer accepts the raw GitHub URL directly as a formula
-# argument, so download it first and install the local formula file.
-echo "Installing pinned nng 1.12.0..."
+arch -x86_64 "${BREW}" install "${NNG_TAP}/nng"
 
-arch -x86_64 "${BREW}" install "${NNG_FORMULA_PATH}"
-
-# Verify the installed version.
-echo "Installed nng version:"
-arch -x86_64 "${BREW}" list --versions nng
-
-echo "nng information:"
-arch -x86_64 "${BREW}" info nng
-
-# Remove temporary formula.
-rm -f "${NNG_FORMULA_PATH}"
-
-
-# Verify the installed version.
 echo "Installed nng version:"
 arch -x86_64 "${BREW}" list --versions nng
 
