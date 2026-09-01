@@ -639,12 +639,18 @@ it with:
    `arch -x86_64 /usr/local/bin/brew` (Homebrew itself runs under
    Rosetta, but `arch`/`machine` reporting is not wrapped — section 13).
 3. **`ci/src/brew_versions.sh`** (new) — the shared verification
-   baseline from section 14. Declares `BREW_VERSIONS[...]` for the 22
-   July-23 known-good versions. Sourced by both bootstraps (for the
-   `openssl@3` target version) and by `watermark.sh` (for the baseline
-   drift check). Initially a verification baseline only — no formula is
-   force-installed to this version unless the bootstrap logic for that
-   formula decides to do so.
+   baseline from section 14. Declares the 22 July-23 known-good versions
+   as two parallel indexed arrays (`BREW_VERSION_FORMULAS` /
+   `BREW_VERSION_VALUES`) plus a `brew_version_of <formula>` helper for
+   lookups. This shape (not `declare -A BREW_VERSIONS`, despite the
+   section 14 example) is deliberate: GitHub Actions' `macos-14` runners
+   ship bash 3.2 as `/bin/bash`, which does not support associative
+   arrays, and the previous `${BREW_VERSIONS[...]}` syntax crashed both
+   `watermark.sh` and the bootstrap scripts under `set -u`. Sourced by
+   both bootstraps (for the `openssl@3` target version) and by
+   `watermark.sh` (for the baseline drift check). Initially a
+   verification baseline only — no formula is force-installed to this
+   version unless the bootstrap logic for that formula decides to do so.
 4. **`ci/src/watermark.sh`** — kept the strict ARM64-vs-x86\_64
    invariant (section 6/17) and the existing `arm64: ...` / `x86_64: ...`
    output format. Added:
@@ -659,17 +665,24 @@ it with:
      the version Homebrew actually hands to the build). Extra kegs are
      surfaced as non-blocking warnings.
 
-   - Section 14 baseline drift check against `BREW_VERSIONS`. Drift is
-     non-blocking (it does not weaken the ARM64==x86\_64 invariant); it
-     is the evidence the next pinning round will use.
-5. **No vendored tap was added.** The historical formula URL install is
-   the smallest mechanism (section 9, first choice). If GitHub Actions
-   shows the 3.6.3 bottle is no longer downloadable from GHCR (the
-   install falls back to a source build that fails because the formula
-   references `Patches/openssl/*.patch` files that a URL install cannot
-   provide), the next round will switch `openssl@3` to a small vendored
-   tap (section 9, second choice). That switch is intentionally not
-   made pre-emptively.
+   - Section 14 baseline drift check via `brew_version_of` (not
+     `${BREW_VERSIONS[...]}` — see item 3 above for the bash 3.2 reason).
+     Drift is non-blocking (it does not weaken the ARM64==x86\_64
+     invariant); it is the evidence the next pinning round will use.
+5. **A runtime vendored tap is created on demand** (section 9, second
+   choice — see section 19.7 for why this was switched from the original
+   URL install after the first CI run). The bootstrap does **not** add a
+   repo-side tap directory; instead it `mkdir -p`s
+   `$(brew --repository)/Library/Taps/kicadpin/homebrew-kicad-pin/Formula/`,
+   `curl`s the historical `openssl@3.rb` from the same `homebrew/core`
+   commit (`afd93f1b...`) into that directory, and runs
+   `HOMEBREW_NO_INSTALL_FROM_API=1 brew install kicadpin/kicad-pin/openssl@3`.
+   The pinning is still the smallest mechanism that satisfies section 9
+   (historical homebrew-core formula, no new package manager); the
+   vendored tap is purely the delivery vehicle that modern Homebrew
+   requires. If the 3.6.3 bottle has been GCRed from GHCR and the
+   source build also fails, the next round will pre-vendor the `.rb`
+   into the repo and ship the patch files alongside it.
 6. **`docs/gradually-stabilize-homebrew-deps.md`** — this section
    (section 19) added.
 
@@ -717,13 +730,93 @@ After the first GitHub Actions run on this change:
   `BREW_DEPS` entry, the task is complete (section 15).
 
 - If any non-`openssl@3` formula shows `MISMATCH`, add a targeted pin
-  for *only that formula* using the same historical-`.rb`-URL mechanism,
-  bump its `BREW_VERSIONS[...]` entry to whatever both architectures
-  converged on, and re-run. Do **not** pre-emptively pin formulas that
-  already match.
+  for *only that formula* using the same runtime vendored tap mechanism
+  (see section 19.7), bump its `brew_version_of` entry in
+  `ci/src/brew_versions.sh` to whatever both architectures converged
+  on, and re-run. Do **not** pre-emptively pin formulas that already
+  match.
 
-- If `openssl@3` itself still mismatches (e.g. the historical formula
-  URL no longer pours a bottle and both arches fell back to source
-  builds that diverged), switch that one formula to a small vendored
-  tap (section 9, second choice).
+- If `openssl@3` itself still mismatches (e.g. the historical 3.6.3
+  bottle has been GCRed from GHCR and both arches fell back to source
+  builds that diverged), pre-vendor the `.rb` plus its patch files into
+  the repo so the source build can complete reproducibly on both arches.
+
+## 19.7 First CI run result (2026-09-01) and second-pass fix
+
+The first GitHub Actions run after section 19's first-pass implementation
+failed during the ARM64 bootstrap's `openssl@3` pin step (process exit
+code 1). The failure was **not** the "bottle GCRed" failure mode
+anticipated in section 19.3 item 5 — it was a different, more
+fundamental incompatibility:
+
+```text
++ HOMEBREW_NO_INSTALL_FROM_API=1
++ /opt/homebrew/bin/brew install \
+    https://raw.githubusercontent.com/Homebrew/homebrew-core/afd93f1b.../Formula/o/openssl%403.rb
+##[warning]No available formula or cask with the name
+"https://raw.githubusercontent.com/homebrew/homebrew-core/.../openssl%403.rb".
+This command requires the tap https:/.
+If you trust this tap, tap it explicitly and then try again:
+  brew tap https:/
+##[error]Process completed with exit code 1.
+```
+
+Modern Homebrew (4.x and later, including the `macos-14-arm64` GitHub
+Actions runner image dated 20260629.0180.1) **refuses to install a
+formula from a raw HTTPS URL** — it interprets the URL as a tap
+reference (`https:/`) rather than as a fetchable formula file. Local
+testing on Homebrew 6.0.20 confirmed that `brew install --formula
+<local-file.rb>` is **also** rejected ("Homebrew requires formulae to
+be in a tap"). The only modern-Homebrew-compatible way to install a
+specific historical formula revision is to place the `.rb` inside a
+tap.
+
+A second, lesser bug was also surfaced by the same log: the bootstrap's
+existing `brew uninstall --ignore-dependencies openssl@3` removed only
+the **active** 3.6.4 keg and left the 3.6.2 keg behind
+(`openssl@3 3.6.2 is still installed.`). The next install would have
+silently seen 3.6.2 as the new active version, breaking the pin
+(section 12).
+
+### Second-pass fix (this commit)
+
+Both bootstrap scripts were updated:
+
+1. `brew uninstall --ignore-dependencies` → `brew uninstall --force
+   --ignore-dependencies` so **all** historical kegs are removed before
+   the pinned install.
+2. The raw-URL `brew install` was replaced with a runtime vendored tap:
+   `mkdir -p $(brew --repository)/Library/Taps/kicadpin/homebrew-kicad-pin/Formula`,
+   `curl -fsSL <OPENSSL_PIN_URL> -o .../Formula/openssl@3.rb`, then
+   `HOMEBREW_NO_INSTALL_FROM_API=1 brew install kicadpin/kicad-pin/openssl@3`.
+   The x86\_64 bootstrap wraps every `brew` invocation in
+   `arch -x86_64` (including `brew --repository`, which returns
+   `/usr/local/Homebrew` rather than `/opt/homebrew`).
+
+Local verification on Homebrew 6.0.20 (bash 3.2.57):
+
+- `bash -n` syntax check passes on both bootstrap scripts.
+- The runtime vendored tap is created, the historical `.rb` is
+  downloaded (8617 bytes, valid `class OpensslAT3 < Formula`), and
+  `brew install --dry-run kicadpin/kicad-pin/openssl@3` recognises the
+  formula (`==> Trusted formula kicadpin/kicad-pin/openssl@3`). The
+  dry-run only stops because the host's existing `openssl@3` from
+  `homebrew/core` blocks it — a condition the `--force --ignore-
+  dependencies` uninstall step in the bootstrap clears first.
+
+### Second-pass expected outcome
+
+After the next GitHub Actions run:
+
+- If `watermark.sh --both` reports `status: OK (baseline-OK)` for every
+  `BREW_DEPS` entry, the task is complete (section 15).
+- If the 3.6.3 bottle has been GCRed from GHCR, the install will fall
+  back to a source build. The historical formula revision
+  (`afd93f1b...`) uses absolute GitHub URLs for its `patch do; url
+  ...; end` blocks, so a source build should still complete. If it does
+  not, pre-vendor the `.rb` plus its patch files into the repo.
+- If any non-`openssl@3` formula shows `MISMATCH`, add a targeted pin
+  for *only that formula* using the same runtime vendored tap mechanism
+  (bump its `brew_version_of` entry to whatever both arches converged
+  on). Do **not** pre-emptively pin formulas that already match.
 

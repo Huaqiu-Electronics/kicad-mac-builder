@@ -194,14 +194,32 @@ arch -x86_64 "${BREW}" install "${BREW_DEPS[@]}"
 # Homebrew install above until CI verification shows another mismatch.
 #
 # The pin uses the historical Homebrew formula file from the homebrew/core
-# commit that carried the desired 3.6.3 bottle. HOMEBREW_NO_INSTALL_FROM_API
-# is set only for this install so the local .rb file is honoured.
+# commit that carried the desired 3.6.3 bottle.
 #
-# If the bottle is no longer downloadable, the install will fall back to a
-# source build; that source build needs the Patches/ files from the
-# homebrew/core checkout, which a URL install cannot provide. If we ever
-# hit that case, switch to a small vendored tap (section 9, second choice).
-# Until CI shows that failure, the URL install is the smallest mechanism.
+# Implementation note (section 9 second-choice fallback): modern Homebrew
+# (4.x and later, including the macos-14-arm64 GitHub Actions runner image)
+# refuses to install a formula from a raw HTTPS URL or a local .rb file --
+# "Homebrew requires formulae to be in a tap". The previous URL install
+# (arch -x86_64 brew install <https://raw.githubusercontent.com/.../openssl%403.rb>)
+# failed on the 2026-09-01 ARM64 runner with:
+#
+#     No available formula or cask with the name "https://..."
+#     This command requires the tap https:/.
+#
+# The smallest mechanism that still satisfies section 9's first choice
+# (historical homebrew-core formula, no new package manager) is to create a
+# tiny runtime vendored tap under the x86_64 Homebrew's Library/Taps and
+# install from there. The tap is created on demand; no repo-side tap
+# directory is needed.
+#
+# All brew commands here run under `arch -x86_64` (Homebrew itself runs
+# under Rosetta 2). Per section 13 the `arch`/`machine` reporting utilities
+# are NOT wrapped in Rosetta.
+#
+# If the 3.6.3 bottle has been GCRed from GHCR and the source build also
+# fails (patches are absolute URLs in this formula revision, so a source
+# build should still work), the next round will pre-vendor the .rb into the
+# repo and ship the patch files alongside it.
 
 echo "Pinning ${OPENSSL_PIN_FORMULA} to ${OPENSSL_PIN_VERSION}..."
 
@@ -217,15 +235,34 @@ if [ "${CURRENT_OPENSSL_VERSION}" = "${OPENSSL_PIN_VERSION}" ]; then
   echo "  already at ${OPENSSL_PIN_VERSION}; nothing to do."
 else
   if [ -n "${CURRENT_OPENSSL_VERSION}" ]; then
-    echo "  uninstalling existing ${OPENSSL_PIN_FORMULA} ${CURRENT_OPENSSL_VERSION}..."
-    arch -x86_64 "${BREW}" uninstall --ignore-dependencies "${OPENSSL_PIN_FORMULA}" || true
+    echo "  uninstalling existing ${OPENSSL_PIN_FORMULA} (all kegs)..."
+    # Use --force so ALL historical kegs are removed. A plain
+    # `brew uninstall --ignore-dependencies` removes only the active keg
+    # and leaves older kegs behind; those then become the new active
+    # version and silently break the pin (section 12).
+    arch -x86_64 "${BREW}" uninstall --force --ignore-dependencies "${OPENSSL_PIN_FORMULA}" || true
   fi
 
-  echo "  installing historical formula from:"
-  echo "    ${OPENSSL_PIN_URL}"
+  # Runtime vendored tap (modern Homebrew requires formulas to live in a tap).
+  # Note: `arch -x86_64 brew --repository` returns the x86_64 Homebrew prefix,
+  # which is /usr/local/Homebrew -- distinct from ARM64's /opt/homebrew.
+  TAP_USER="kicadpin"
+  TAP_REPO="kicad-pin"
+  TAP_DIR="$(arch -x86_64 "${BREW}" --repository)/Library/Taps/${TAP_USER}/homebrew-${TAP_REPO}"
+  TAP_FORMULA_DIR="${TAP_DIR}/Formula"
+  TAP_FORMULA_FILE="${TAP_FORMULA_DIR}/${OPENSSL_PIN_FORMULA}.rb"
 
+  echo "  creating local tap ${TAP_USER}/${TAP_REPO} at:"
+  echo "    ${TAP_DIR}"
+  mkdir -p "${TAP_FORMULA_DIR}"
+
+  echo "  downloading historical formula from:"
+  echo "    ${OPENSSL_PIN_URL}"
+  curl -fsSL "${OPENSSL_PIN_URL}" -o "${TAP_FORMULA_FILE}"
+
+  echo "  installing ${TAP_USER}/${TAP_REPO}/${OPENSSL_PIN_FORMULA}"
   HOMEBREW_NO_INSTALL_FROM_API=1 \
-    arch -x86_64 "${BREW}" install "${OPENSSL_PIN_URL}"
+    arch -x86_64 "${BREW}" install "${TAP_USER}/${TAP_REPO}/${OPENSSL_PIN_FORMULA}"
 fi
 
 
