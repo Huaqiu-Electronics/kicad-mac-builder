@@ -6,9 +6,33 @@ on:
     types: [published]
   workflow_dispatch:
 
+# ---------------------------------------------------------------------------
+# Split packaging (docs/split-packaging.md)
+#
+# ARM64 and x86_64 are built as INDEPENDENT GitHub Actions matrix jobs that
+# run in parallel on separate Apple Silicon (macos-14) runners. Each job
+# bootstraps and builds only its own architecture and produces an
+# architecture-specific DMG. A publish-release job (needs: build) downloads
+# both DMGs and uploads them to the GitHub release.
+#
+# There is NO universal binary, NO lipo step, and NO universal DMG. The two
+# jobs do NOT depend on each other (fail-fast: false).
+# ---------------------------------------------------------------------------
+
 jobs:
-  create_kicad_archive:
-    runs-on: macos-14   # Switch to macOS 14 for Xcode 16
+  build:
+    runs-on: macos-14   # macOS 14 / Xcode 16.2 baseline (do not switch for this task)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both jobs run on Apple Silicon runners. The x86_64 build uses
+          # Rosetta 2 and the /usr/local Homebrew installation, exactly like
+          # ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh.
+          - arch: arm64
+            bootstrap_script: ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
+          - arch: x86_64
+            bootstrap_script: ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
 
     steps:
       - name: Checkout repo
@@ -19,7 +43,7 @@ jobs:
           echo "Initial disk usage:"
           df -h
 
-      - name: Free disk space (keep Xcode 16.2)
+      - name: Free disk spaces (keep Xcode 16.2)
         run: |
           echo "Cleaning large preinstalled software..."
 
@@ -73,21 +97,31 @@ jobs:
           echo 'export CC="ccache clang"' >> $GITHUB_ENV
           echo 'export CXX="ccache clang++"' >> $GITHUB_ENV
 
+      # Architecture-specific ccache key so ARM64 and x86_64 compiler caches
+      # never collide (docs/split-packaging.md section 9).
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: macos-ccache-${{ github.ref }}
+          key: macos-ccache-${{ matrix.arch }}-${{ github.ref }}
+          restore-keys: |
+            macos-ccache-${{ matrix.arch }}-
 
-      - name: Bootstrap
+      - name: Identify architecture
         run: |
-          ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
-          ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
+          echo "============================================================"
+          echo "Build matrix architecture: ${{ matrix.arch }}"
+          echo "============================================================"
+          uname -m
+          arch
+
+      - name: Bootstrap (${{ matrix.arch }})
+        run: ${{ matrix.bootstrap_script }}
 
       - name: Show disk before build
         run: df -h
 
-      - name: Build KiCad
+      - name: Build KiCad (${{ matrix.arch }})
         env:
           TAG: ${{ steps.latest-release.outputs.tag }}
           KICAD_REF: release/10.0
@@ -97,10 +131,14 @@ jobs:
           FOOTPRINTS_REF: ${{ steps.latest-release.outputs.tag }}
           PACKAGES3D_REF: ${{ steps.latest-release.outputs.tag }}
           TEMPLATES_REF: ${{ steps.latest-release.outputs.tag }}
-          RELEASE_NAME: huaqiu-${{ steps.latest-release.outputs.tag }}-macos
+          # RELEASE_NAME includes the architecture so the two jobs never
+          # produce ambiguous output names (section 10). package.sh names the
+          # DMG kicad-unified-${RELEASE_NAME}.dmg; the rename step below
+          # strips "unified-" to match section 7's required asset names.
+          RELEASE_NAME: huaqiu-${{ steps.latest-release.outputs.tag }}-macos-${{ matrix.arch }}
           DOCS_TARBALL_URL: https://gitlab.com/kicad/services/kicad-doc/-/archive/${{ steps.latest-release.outputs.tag }}/kicad-doc-${{ steps.latest-release.outputs.tag }}.tar.gz
         run: |
-          ./ci/src/make-universal-build-with-refs.sh
+          ./ci/src/make-build-with-refs.sh --arch ${{ matrix.arch }}
 
       - name: Show DMG files
         run: |
@@ -110,11 +148,114 @@ jobs:
       - name: Show disk after build
         run: df -h
 
-      - name: Upload universal DMG to release
+      - name: Rename DMG to release asset name
+        env:
+          RELEASE_NAME: huaqiu-${{ steps.latest-release.outputs.tag }}-macos-${{ matrix.arch }}
+        run: |
+          # package.sh produces build/dmg/kicad-unified-${RELEASE_NAME}.dmg.
+          # The release must contain kicad-${RELEASE_NAME}.dmg (no "unified",
+          # per docs/split-packaging.md section 7).
+          SRC="$(find build/dmg -name 'kicad-unified-*.dmg' | head -n1)"
+          if [ -z "$SRC" ]; then
+            echo "ERROR: no kicad-unified-*.dmg found in build/dmg/"
+            ls -la build/dmg/ || true
+            exit 1
+          fi
+          DST="build/dmg/kicad-${RELEASE_NAME}.dmg"
+          echo "Renaming:"
+          echo "  $SRC"
+          echo "  -> $DST"
+          mv "$SRC" "$DST"
+          echo "Verifying architecture of the packaged binary:"
+          # Mount the DMG read-only and inspect KiCad's Mach-O architecture.
+          MNT="$(mktemp -d /tmp/kicad-dmg.XXXXXX)"
+          hdiutil attach "$DST" -mountpoint "$MNT" -nobrowse -readonly -noautoopen
+          BIN="$(find "$MNT" -path '*/MacOS/kicad' -type f | head -n1)"
+          if [ -n "$BIN" ]; then
+            echo "file output for $BIN:"
+            file "$BIN"
+          else
+            echo "Note: kicad binary not found inside DMG to inspect."
+          fi
+          hdiutil detach "$(hdiutil info | grep -A1 "$MNT" | grep '^/dev/' | awk '{print $1}')" -force || true
+
+      - name: Upload DMG artifact (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: kicad-dmg-${{ matrix.arch }}
+          path: build/dmg/kicad-*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # publish-release: depends on BOTH architecture builds, uploads the two
+  # architecture-specific DMGs to the GitHub release. Does not depend on one
+  # architecture to build the other (section 8 / section 15).
+  # ---------------------------------------------------------------------------
+  publish-release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get latest tag
+        id: latest-release
+        uses: oprypin/find-latest-tag@v1
+        with:
+          repository: Huaqiu-Electronics/kicad-mac-builder
+          releases-only: true
+
+      - name: Download arm64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: kicad-dmg-arm64
+          path: ./artifacts/arm64
+
+      - name: Download x86_64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: kicad-dmg-x86_64
+          path: ./artifacts/x86_64
+
+      - name: Show downloaded DMGs
+        run: |
+          echo "Downloaded DMGs:"
+          find ./artifacts -name "*.dmg" -print
+          echo
+          echo "Sizes:"
+          find ./artifacts -name "*.dmg" -exec ls -lh {} \;
+
+      - name: Locate DMG paths
+        id: dmgs
+        run: |
+          ARM64_DMG="$(find ./artifacts/arm64 -name '*.dmg' | head -n1)"
+          X86_DMG="$(find ./artifacts/x86_64 -name '*.dmg' | head -n1)"
+          if [ -z "$ARM64_DMG" ]; then
+            echo "ERROR: arm64 DMG not found in ./artifacts/arm64"
+            exit 1
+          fi
+          if [ -z "$X86_DMG" ]; then
+            echo "ERROR: x86_64 DMG not found in ./artifacts/x86_64"
+            exit 1
+          fi
+          echo "arm64 DMG: $ARM64_DMG"
+          echo "x86_64 DMG: $X86_DMG"
+          echo "arm64_dmg=$ARM64_DMG" >> "$GITHUB_OUTPUT"
+          echo "x86_dmg=$X86_DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload arm64 DMG to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
-          file: ./build-universal/build/dmg/kicad-unified-huaqiu-${{ steps.latest-release.outputs.tag }}-macos.dmg
-          asset_name: kicad-unified-huaqiu-${{ steps.latest-release.outputs.tag }}-macos.dmg
+          file: ${{ steps.dmgs.outputs.arm64_dmg }}
+          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-macos-arm64.dmg
+          overwrite: true
+          tag: ${{ steps.latest-release.outputs.tag }}
+
+      - name: Upload x86_64 DMG to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
+          file: ${{ steps.dmgs.outputs.x86_dmg }}
+          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-macos-x86_64.dmg
           overwrite: true
           tag: ${{ steps.latest-release.outputs.tag }}
