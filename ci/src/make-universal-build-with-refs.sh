@@ -8,7 +8,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 KICAD_MAC_BUILDER_DIR=${SCRIPT_DIR}/../../
 
-# "$SCRIPT_DIR"/watermark.sh --both
+"$SCRIPT_DIR"/watermark.sh --both
 
 if [ "$(arch)" != "arm64" ]; then
   echo "Expected 'arch' to return 'arm64'. Are you in a terminal running under Rosetta, maybe?"
