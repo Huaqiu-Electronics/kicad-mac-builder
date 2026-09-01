@@ -765,8 +765,7 @@ Modern Homebrew (4.x and later, including the `macos-14-arm64` GitHub
 Actions runner image dated 20260629.0180.1) **refuses to install a
 formula from a raw HTTPS URL** — it interprets the URL as a tap
 reference (`https:/`) rather than as a fetchable formula file. Local
-testing on Homebrew 6.0.20 confirmed that `brew install --formula
-<local-file.rb>` is **also** rejected ("Homebrew requires formulae to
+testing on Homebrew 6.0.20 confirmed that `brew install --formula <local-file.rb>` is **also** rejected ("Homebrew requires formulae to
 be in a tap"). The only modern-Homebrew-compatible way to install a
 specific historical formula revision is to place the `.rb` inside a
 tap.
@@ -782,8 +781,7 @@ silently seen 3.6.2 as the new active version, breaking the pin
 
 Both bootstrap scripts were updated:
 
-1. `brew uninstall --ignore-dependencies` → `brew uninstall --force
-   --ignore-dependencies` so **all** historical kegs are removed before
+1. `brew uninstall --ignore-dependencies` → `brew uninstall --force --ignore-dependencies` so **all** historical kegs are removed before
    the pinned install.
 2. The raw-URL `brew install` was replaced with a runtime vendored tap:
    `mkdir -p $(brew --repository)/Library/Taps/kicadpin/homebrew-kicad-pin/Formula`,
@@ -796,6 +794,7 @@ Both bootstrap scripts were updated:
 Local verification on Homebrew 6.0.20 (bash 3.2.57):
 
 - `bash -n` syntax check passes on both bootstrap scripts.
+
 - The runtime vendored tap is created, the historical `.rb` is
   downloaded (8617 bytes, valid `class OpensslAT3 < Formula`), and
   `brew install --dry-run kicadpin/kicad-pin/openssl@3` recognises the
@@ -810,11 +809,13 @@ After the next GitHub Actions run:
 
 - If `watermark.sh --both` reports `status: OK (baseline-OK)` for every
   `BREW_DEPS` entry, the task is complete (section 15).
+
 - If the 3.6.3 bottle has been GCRed from GHCR, the install will fall
   back to a source build. The historical formula revision
   (`afd93f1b...`) uses absolute GitHub URLs for its `patch do; url
   ...; end` blocks, so a source build should still complete. If it does
   not, pre-vendor the `.rb` plus its patch files into the repo.
+
 - If any non-`openssl@3` formula shows `MISMATCH`, add a targeted pin
   for *only that formula* using the same runtime vendored tap mechanism
   (bump its `brew_version_of` entry to whatever both arches converged
