@@ -285,17 +285,17 @@ fi
 
 
 # ---------------------------------------------------------------------------
-# Explicitly verify openssl@3
+# Explicitly verify openssl
 # ---------------------------------------------------------------------------
 
 echo
-echo "Verifying openssl@3..."
+echo "Verifying openssl..."
 
-if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "openssl@3"; then
-  arch -x86_64 "${BREW}" list --versions openssl@3
-  arch -x86_64 "${BREW}" info openssl@3
+if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "openssl"; then
+  arch -x86_64 "${BREW}" list --versions openssl
+  arch -x86_64 "${BREW}" info openssl
 else
-  echo "openssl@3 is not present in BREW_DEPS."
+  echo "openssl is not present in BREW_DEPS."
 fi
 
 
@@ -321,12 +321,16 @@ echo "Host architecture:"
 echo "  machine: ${HOST_MACHINE}"
 
 echo
-echo "Rosetta Homebrew architecture:"
-arch -x86_64 arch
-
-echo
 echo "Homebrew:"
 arch -x86_64 "${BREW}" --version
+
+echo
+echo "Homebrew prefix:"
+arch -x86_64 "${BREW}" --prefix
+
+echo
+echo "Homebrew configuration:"
+arch -x86_64 "${BREW}" config
 
 echo
 echo "Homebrew Core:"
@@ -335,10 +339,6 @@ git -C "${CORE_REPO}" log -1 --oneline
 echo
 echo "Homebrew Core revision:"
 git -C "${CORE_REPO}" rev-parse HEAD
-
-echo
-echo "Homebrew prefix:"
-arch -x86_64 "${BREW}" --prefix
 
 echo
 echo "Done!"
