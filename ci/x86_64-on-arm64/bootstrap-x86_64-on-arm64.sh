@@ -1,48 +1,100 @@
 #!/bin/bash
 
-set -x
-set -e
-
-# This script helps you set up an M1 Mac to build the x86_64 version of KiCad.
-# This is not intended to be the complete answer to "M1 support".
+# Bootstrap an x86_64 Homebrew build environment on an Apple Silicon system.
 #
-# Notes:
+# This script prepares an x86_64 Homebrew environment for building the
+# x86_64 version of KiCad on an Apple Silicon Mac through Rosetta 2.
 #
-# If you are on an Mx Mac, /usr/local/bin/brew is for x86_64 things, and the
-# default M1-y Homebrew is in /opt/homebrew.
+# On an Apple Silicon Mac there are two Homebrew installations:
 #
-# Many folks would only need the M1-y Homebrew, but if you are building
-# x86_64 KiCad on an M1 Mac you are not most folks.
+#   Native ARM64:
+#       /opt/homebrew/bin/brew
 #
-# One way of handling this multiverse of madness is to have the M1-y Homebrew
-# in your path first. When you type `brew`, it means the M1 Homebrew.
-# If you need to use the x86_64 Homebrew, run:
+#   x86_64:
+#       /usr/local/bin/brew
 #
-#   arch -x86_64 /usr/local/bin/brew
+# This script intentionally uses the x86_64 Homebrew installation.
 #
-# After running this script, you could set up CLion, for instance, with:
+# All Homebrew formula definitions are pinned to a known-good
+# homebrew/core commit.
+#
+# This is intentional because individual formulas can lose compatible
+# bottles over time. For example:
+#
+#   - nng
+#   - openssl@3
+#   - xz
+#   - lz4
+#   - ...
+#
+# Rather than pinning individual formulas, the entire Homebrew Core
+# dependency universe is pinned to one known-good revision.
+#
+# IMPORTANT:
+#
+# CORE_COMMIT should ideally be the homebrew/core commit from the last
+# known-good KiCad build.
+#
+# The current value is the commit already known to provide the previously
+# successful nng 1.12.0 bottle:
+#
+#   58656612e45244656656414088afd240fd85de08
+#
+# "nng: update 1.12.0 bottle"
+#
+# If the successful KiCad CI build used another homebrew/core revision,
+# replace CORE_COMMIT with that revision.
+#
+#
+# Rosetta:
+#
+# The complete build process should be launched as x86_64, for example:
 #
 #   arch -x86_64 ./build.py --target setup-kicad-dependencies
 #
-# checking out KiCad, opening it in Intel CLion (I am not sure if the Apple
-# Silicon CLion will work), copying the CMake arguments in, and then doing
-# Build > Install in CLion.
-#
-# To do a regular package build using kicad-mac-builder, you'll need to
-# install dyldstyle to get wrangle-bundle, which you can do with:
-#
-#   ci/src/get-wrangle-bundle.sh
-#
-# Add it to your PATH, so `wrangle-bundle` works at the CLI.
-#
-# Then you can use build.py like:
+# or:
 #
 #   arch -x86_64 ./build.py --target kicad
+#
+# This script itself also explicitly invokes the x86_64 Homebrew binary
+# through `arch -x86_64`.
+#
+#
+# Notes:
+#
+# After this script completes, the x86_64 Homebrew environment is located
+# at /usr/local.
+#
+# The native ARM64 Homebrew environment remains at /opt/homebrew.
 
+
+set -x
+set -e
+
+
+# ---------------------------------------------------------------------------
+# Script setup
+# ---------------------------------------------------------------------------
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 source "${SCRIPT_DIR}/../src/brew_deps.sh"
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+# Known-good Homebrew Core revision.
+#
+# Prefer replacing this with the exact homebrew/core commit from the last
+# successful KiCad build if that information is available.
+#
+CORE_COMMIT="58656612e45244656656414088afd240fd85de08"
+
+
+# x86_64 Homebrew on Apple Silicon.
+BREW="/usr/local/bin/brew"
 
 
 # ---------------------------------------------------------------------------
@@ -55,34 +107,77 @@ if pgrep -q oahd; then
   echo "Rosetta 2 is installed."
 else
   echo "Rosetta 2 is not installed."
-  echo "You'll need to install it. One way is with:"
-  echo "/usr/sbin/softwareupdate --install-rosetta"
+  echo
+  echo "Install it with:"
+  echo
+  echo "  /usr/sbin/softwareupdate --install-rosetta"
+  echo
   exit 1
 fi
+
+
+# ---------------------------------------------------------------------------
+# Check execution environment
+# ---------------------------------------------------------------------------
+#
+# The host machine must be Apple Silicon, while the Homebrew process below
+# must run as x86_64 under Rosetta.
+#
+
+HOST_MACHINE=$(machine)
+
+echo "Host machine:"
+echo "  ${HOST_MACHINE}"
+
+if [ "${HOST_MACHINE}" != "arm64" ] && [ "${HOST_MACHINE}" != "arm64e" ]; then
+  echo "ERROR: expected an Apple Silicon host."
+  echo "       machine=${HOST_MACHINE}"
+  exit 1
+fi
+
+echo "Apple Silicon host detected."
 
 
 # ---------------------------------------------------------------------------
 # Install x86_64 Homebrew if necessary
 # ---------------------------------------------------------------------------
 
-if [ ! -e /usr/local/bin/brew ]; then
+if [ ! -e "${BREW}" ]; then
   echo "Installing x86_64 Homebrew..."
 
   arch -x86_64 /bin/bash -c \
-    "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)" \
+    "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
     < /dev/null
+fi
+
+
+if [ ! -x "${BREW}" ]; then
+  echo "ERROR: x86_64 Homebrew was not installed correctly."
+  echo "       expected: ${BREW}"
+  exit 1
 fi
 
 
 # ---------------------------------------------------------------------------
 # Homebrew configuration
 # ---------------------------------------------------------------------------
+#
+# Do not let Homebrew automatically move the environment forward.
+#
+# HOMEBREW_NO_INSTALL_FROM_API is important here. Without it, modern
+# Homebrew may use the remote formula API instead of the locally checked-out
+# homebrew/core repository.
+#
 
 export HOMEBREW_NO_ANALYTICS=1
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
+export HOMEBREW_NO_INSTALL_FROM_API=1
 
-BREW="/usr/local/bin/brew"
+
+# ---------------------------------------------------------------------------
+# Homebrew information
+# ---------------------------------------------------------------------------
 
 echo "Using x86_64 Homebrew:"
 arch -x86_64 "${BREW}" --version
@@ -92,97 +187,217 @@ arch -x86_64 "${BREW}" config
 
 
 # ---------------------------------------------------------------------------
-# Update x86_64 Homebrew
+# Ensure homebrew/core is available locally
 # ---------------------------------------------------------------------------
 #
-# We intentionally do NOT run `brew upgrade`.
-#
-# The build should not unexpectedly upgrade dependencies between CI runs.
-#
-
-echo "Updating Homebrew..."
-arch -x86_64 "${BREW}" update
-
-
-# ---------------------------------------------------------------------------
-# Install normal KiCad dependencies
-# ---------------------------------------------------------------------------
-#
-# nng is intentionally NOT included in BREW_DEPS.
-#
-# The current nng 1.12.4 formula has no compatible bottle for this
-# x86_64-under-Rosetta / macOS 14 environment.
-#
-# We instead install the known-good nng 1.12.0 formula from:
-#
-#   homebrew-core commit:
-#   58656612e45244656656414088afd240fd85de08
-#
-# "nng: update 1.12.0 bottle"
-#
-# This is the version used by the previously successful KiCad build.
+# We intentionally use a local checkout of homebrew/core rather than the
+# current Homebrew API.
 #
 
-echo "Installing KiCad dependencies..."
+echo "Checking homebrew/core..."
 
-BREW_DEPS_WITHOUT_NNG=()
+if ! arch -x86_64 "${BREW}" tap | grep -q '^homebrew/core$'; then
+  echo "Adding homebrew/core..."
 
-for dep in "${BREW_DEPS[@]}"; do
-  if [ "$dep" != "nng" ]; then
-    BREW_DEPS_WITHOUT_NNG+=("$dep")
-  fi
-done
-
-arch -x86_64 "${BREW}" install "${BREW_DEPS_WITHOUT_NNG[@]}"
-
-echo "Installing pinned nng 1.12.0..."
-
-# ---------------------------------------------------------------------------
-# Install known-good nng 1.12.0
-# ---------------------------------------------------------------------------
-
-NNG_COMMIT="58656612e45244656656414088afd240fd85de08"
-NNG_FORMULA_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/${NNG_COMMIT}/Formula/n/nng.rb"
-
-NNG_TAP="huaqiu/nng-pin"
-
-echo "Preparing pinned nng 1.12.0..."
-echo "  Commit: ${NNG_COMMIT}"
-echo "  Formula: ${NNG_FORMULA_URL}"
-
-if ! arch -x86_64 "${BREW}" tap | grep -q "^${NNG_TAP}$"; then
-  echo "Creating temporary Homebrew tap: ${NNG_TAP}"
-  arch -x86_64 "${BREW}" tap-new "${NNG_TAP}"
+  arch -x86_64 "${BREW}" tap --force homebrew/core
 fi
 
-NNG_TAP_PATH="$(
-  arch -x86_64 "${BREW}" --repository
-)/Library/Taps/huaqiu/homebrew-nng-pin"
 
-NNG_FORMULA_PATH="${NNG_TAP_PATH}/Formula/nng.rb"
+# ---------------------------------------------------------------------------
+# Locate homebrew/core repository
+# ---------------------------------------------------------------------------
 
-curl -fsSL \
-  "${NNG_FORMULA_URL}" \
-  -o "${NNG_FORMULA_PATH}"
+CORE_REPO="$(
+  arch -x86_64 "${BREW}" --repository homebrew/core
+)"
 
-echo "Installing nng 1.12.0..."
+echo "Homebrew Core repository:"
+echo "  ${CORE_REPO}"
 
-arch -x86_64 "${BREW}" install "${NNG_TAP}/nng"
 
-echo "Installed nng version:"
-arch -x86_64 "${BREW}" list --versions nng
+if [ ! -d "${CORE_REPO}/.git" ]; then
+  echo "ERROR: homebrew/core is not a Git repository:"
+  echo "       ${CORE_REPO}"
+  exit 1
+fi
 
-echo "nng information:"
-arch -x86_64 "${BREW}" info nng
+
+# ---------------------------------------------------------------------------
+# Pin homebrew/core
+# ---------------------------------------------------------------------------
+#
+# Do NOT run `brew update` here.
+#
+# Updating Homebrew would move homebrew/core away from the pinned revision.
+#
+# Instead, fetch exactly the requested commit and checkout that commit in
+# detached HEAD state.
+#
+# Git itself is executed under Rosetta so that the operation is performed
+# entirely within the x86_64 Homebrew environment.
+#
+
+echo "Pinning homebrew/core..."
+echo "  Commit: ${CORE_COMMIT}"
+
+arch -x86_64 git \
+  -C "${CORE_REPO}" \
+  fetch --force origin "${CORE_COMMIT}"
+
+arch -x86_64 git \
+  -C "${CORE_REPO}" \
+  checkout --detach "${CORE_COMMIT}"
+
+
+# ---------------------------------------------------------------------------
+# Verify homebrew/core revision
+# ---------------------------------------------------------------------------
+
+ACTUAL_CORE_COMMIT="$(
+  arch -x86_64 git \
+    -C "${CORE_REPO}" \
+    rev-parse HEAD
+)"
+
+echo "Homebrew Core revision:"
+echo "  Expected: ${CORE_COMMIT}"
+echo "  Actual:   ${ACTUAL_CORE_COMMIT}"
+
+if [ "${ACTUAL_CORE_COMMIT}" != "${CORE_COMMIT}" ]; then
+  echo "ERROR: homebrew/core revision mismatch."
+  exit 1
+fi
+
+echo "Homebrew Core successfully pinned."
+
+
+# ---------------------------------------------------------------------------
+# Show pinned Core revision
+# ---------------------------------------------------------------------------
+
+echo "Homebrew Core commit information:"
+
+arch -x86_64 git \
+  -C "${CORE_REPO}" \
+  log -1 --oneline --decorate
+
+
+# ---------------------------------------------------------------------------
+# Install KiCad dependencies
+# ---------------------------------------------------------------------------
+#
+# All dependencies, including nng and openssl@3, are installed from the
+# pinned homebrew/core revision.
+#
+# There is intentionally NO special handling for:
+#
+#   nng
+#   openssl@3
+#   xz
+#   lz4
+#
+# The entire dependency set is controlled by CORE_COMMIT.
+#
+
+echo "Installing KiCad dependencies from pinned homebrew/core..."
+
+echo "Dependencies:"
+printf '  %s\n' "${BREW_DEPS[@]}"
+
+
+arch -x86_64 "${BREW}" install "${BREW_DEPS[@]}"
+
+
+# ---------------------------------------------------------------------------
+# Verify installed dependencies
+# ---------------------------------------------------------------------------
+
+echo "Installed KiCad dependencies:"
+
+for dep in "${BREW_DEPS[@]}"; do
+  echo
+  echo "============================================================"
+  echo "Dependency: ${dep}"
+  echo "============================================================"
+
+  arch -x86_64 "${BREW}" list --versions "${dep}" || true
+done
+
+
+# ---------------------------------------------------------------------------
+# Explicitly verify the previously problematic packages
+# ---------------------------------------------------------------------------
+
+echo
+echo "Verifying nng..."
+
+if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "nng"; then
+  arch -x86_64 "${BREW}" list --versions nng
+  arch -x86_64 "${BREW}" info nng
+else
+  echo "nng is not present in BREW_DEPS."
+fi
+
+
+echo
+echo "Verifying openssl@3..."
+
+if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "openssl@3"; then
+  arch -x86_64 "${BREW}" list --versions openssl@3
+  arch -x86_64 "${BREW}" info openssl@3
+else
+  echo "openssl@3 is not present in BREW_DEPS."
+fi
 
 
 # ---------------------------------------------------------------------------
 # Clean up Homebrew
 # ---------------------------------------------------------------------------
+#
+# Keep automatic cleanup disabled during installation, then explicitly
+# clean at the end.
+#
 
 echo "Cleaning up Homebrew..."
 
 arch -x86_64 "${BREW}" cleanup -s
 
 
+# ---------------------------------------------------------------------------
+# Final environment summary
+# ---------------------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo "Bootstrap complete"
+echo "============================================================"
+
+echo "Host architecture:"
+echo "  machine: ${HOST_MACHINE}"
+
+echo
+echo "Execution architecture:"
+arch -x86_64 arch
+
+echo
+echo "Homebrew:"
+arch -x86_64 "${BREW}" --version
+
+echo
+echo "Homebrew Core:"
+arch -x86_64 git \
+  -C "${CORE_REPO}" \
+  log -1 --oneline
+
+echo
+echo "Homebrew Core revision:"
+arch -x86_64 git \
+  -C "${CORE_REPO}" \
+  rev-parse HEAD
+
+echo
+echo "Homebrew prefix:"
+arch -x86_64 "${BREW}" --prefix
+
+echo
 echo "Done!"
