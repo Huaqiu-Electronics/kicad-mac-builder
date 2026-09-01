@@ -15,28 +15,32 @@
 #
 # This script intentionally uses the x86_64 Homebrew installation.
 #
-# The entire Homebrew Core repository is pinned to a known-good commit.
-# This keeps all KiCad dependencies, including nng and openssl@3,
-# on a consistent historical formula/bottle set.
+# Strategy (docs/gradually-stabilize-homebrew-deps.md):
 #
-# IMPORTANT:
+#   * Use normal Homebrew (`arch -x86_64 /usr/local/bin/brew update` +
+#     `arch -x86_64 /usr/local/bin/brew install`) for all KiCad dependencies.
+#     This mirrors the 2026-07-23 known-good GitHub Actions run
+#     (docs/success_run.log), which did NOT pin the homebrew/core repository
+#     and still produced matching ARM64/x86_64 versions.
 #
-# CORE_COMMIT should ideally be the homebrew/core commit from the last
-# known-good KiCad build.
+#   * Do NOT freeze the entire homebrew/core repository. The previous
+#     whole-repo pin was over-engineering and is explicitly discouraged by
+#     the task spec (section 9: "freeze the entire Homebrew repository
+#     without evidence that it is necessary").
 #
-# The current value is the commit already known to provide the previously
-# successful nng 1.12.0 bottle:
+#   * Pin only the dependencies that actually show an architecture mismatch
+#     in CI. The first observed mismatch is openssl@3 (ARM64 3.6.4 vs
+#     x86_64 3.6.2; known-good 3.6.3). The pin uses the smallest Homebrew-
+#     native mechanism available: the historical formula file checked into
+#     homebrew/core at the commit that carried the desired bottle.
 #
-#   58656612e45244656656414088afd240fd85de08
+#   * Git is intentionally NOT executed through Rosetta. GitHub Actions'
+#     Apple Silicon runners provide a native ARM64 Git, which can operate on
+#     the x86_64 Homebrew checkout without any problem.
 #
-# "nng: update 1.12.0 bottle"
-#
-# Git is intentionally NOT executed through Rosetta. GitHub Actions'
-# Apple Silicon runners provide a native ARM64 Git, which can operate on
-# the x86_64 Homebrew Core checkout without any problem.
-#
-# Homebrew itself is always executed through Rosetta.
-
+#   * Homebrew itself is always executed through Rosetta
+#     (`arch -x86_64 /usr/local/bin/brew ...`). Per section 13, do NOT wrap
+#     the `arch`/`machine` reporting utilities themselves in Rosetta.
 
 set -x
 set -e
@@ -49,15 +53,30 @@ set -e
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 source "${SCRIPT_DIR}/../src/brew_deps.sh"
+source "${SCRIPT_DIR}/../src/brew_versions.sh"
 
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-CORE_COMMIT="58656612e45244656656414088afd240fd85de08"
-
 BREW="/usr/local/bin/brew"
+
+# Pin openssl@3 to the 2026-07-23 known-good version (3.6.3).
+#
+# This is the ONLY formula currently pinned, because it is the only observed
+# architecture mismatch (section 10). Other formulas remain on the normal
+# Homebrew API install path until/unless verification shows another mismatch.
+#
+# The commit below is the homebrew/core revision that carried the 3.6.3
+# bottle active on 2026-07-23 ("openssl@3: update 3.6.3 bottle.").
+OPENSSL_PIN_FORMULA="openssl@3"
+# Use the brew_version_of helper from brew_versions.sh -- it is bash 3.2
+# compatible (parallel indexed arrays), whereas ${BREW_VERSIONS[...]}
+# associative-array syntax is not supported by macOS's /bin/bash.
+OPENSSL_PIN_VERSION="$(brew_version_of "${OPENSSL_PIN_FORMULA}")"
+OPENSSL_PIN_COMMIT="afd93f1b5d40319fef3976408e83f0b232de81ac"
+OPENSSL_PIN_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/${OPENSSL_PIN_COMMIT}/Formula/o/openssl%403.rb"
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +101,11 @@ fi
 # ---------------------------------------------------------------------------
 # Check host architecture
 # ---------------------------------------------------------------------------
+#
+# Per section 13: do NOT use `arch -x86_64 arch` to report the host
+# architecture -- it produces "Can't find any plists for arch". Use the
+# host's native `arch`/`machine` instead.
+#
 
 HOST_MACHINE=$(machine)
 
@@ -121,16 +145,14 @@ fi
 # Homebrew configuration
 # ---------------------------------------------------------------------------
 #
-# Do not let Homebrew automatically update or clean up dependencies.
-#
-# HOMEBREW_NO_INSTALL_FROM_API is important because we want Homebrew to use
-# the locally checked-out homebrew/core repository at CORE_COMMIT.
+# Match the 2026-07-23 known-good run: only HOMEBREW_NO_ANALYTICS is set.
+# Do NOT set HOMEBREW_NO_INSTALL_FROM_API globally here -- the normal API
+# install path is what produced the known-good dependency versions.
+# HOMEBREW_NO_INSTALL_FROM_API is only enabled locally for the historical
+# openssl@3 formula install below.
 #
 
 export HOMEBREW_NO_ANALYTICS=1
-export HOMEBREW_NO_AUTO_UPDATE=1
-export HOMEBREW_NO_INSTALL_CLEANUP=1
-export HOMEBREW_NO_INSTALL_FROM_API=1
 
 
 # ---------------------------------------------------------------------------
@@ -145,112 +167,66 @@ arch -x86_64 "${BREW}" config
 
 
 # ---------------------------------------------------------------------------
-# Ensure homebrew/core is available locally
+# Update Homebrew (matches known-good run)
 # ---------------------------------------------------------------------------
 
-echo "Checking homebrew/core..."
-
-if ! arch -x86_64 "${BREW}" tap | grep -q '^homebrew/core$'; then
-  echo "Adding homebrew/core..."
-
-  arch -x86_64 "${BREW}" tap --force homebrew/core
-fi
+echo "Updating Homebrew..."
+arch -x86_64 "${BREW}" update
 
 
 # ---------------------------------------------------------------------------
-# Locate homebrew/core repository
+# Install KiCad dependencies (normal Homebrew path)
 # ---------------------------------------------------------------------------
 
-CORE_REPO="$(
-  arch -x86_64 "${BREW}" --repository homebrew/core
-)"
-
-echo "Homebrew Core repository:"
-echo "  ${CORE_REPO}"
-
-
-if [ ! -d "${CORE_REPO}/.git" ]; then
-  echo "ERROR: homebrew/core is not a Git repository:"
-  echo "       ${CORE_REPO}"
-  exit 1
-fi
-
-
-# ---------------------------------------------------------------------------
-# Pin homebrew/core
-# ---------------------------------------------------------------------------
-#
-# Git is native ARM64 on Apple Silicon.
-#
-# DO NOT use:
-#
-#   arch -x86_64 git
-#
-# The GitHub Actions runner's Git is ARM64 and should be used directly.
-#
-
-echo "Pinning homebrew/core..."
-echo "  Commit: ${CORE_COMMIT}"
-
-git -C "${CORE_REPO}" fetch --force origin "${CORE_COMMIT}"
-
-git -C "${CORE_REPO}" checkout --detach "${CORE_COMMIT}"
-
-
-# ---------------------------------------------------------------------------
-# Verify homebrew/core revision
-# ---------------------------------------------------------------------------
-
-ACTUAL_CORE_COMMIT="$(
-  git -C "${CORE_REPO}" rev-parse HEAD
-)"
-
-echo "Homebrew Core revision:"
-echo "  Expected: ${CORE_COMMIT}"
-echo "  Actual:   ${ACTUAL_CORE_COMMIT}"
-
-if [ "${ACTUAL_CORE_COMMIT}" != "${CORE_COMMIT}" ]; then
-  echo "ERROR: homebrew/core revision mismatch."
-  exit 1
-fi
-
-echo "Homebrew Core successfully pinned."
-
-
-# ---------------------------------------------------------------------------
-# Show pinned Core revision
-# ---------------------------------------------------------------------------
-
-echo "Homebrew Core commit information:"
-
-git -C "${CORE_REPO}" log -1 --oneline --decorate
-
-
-# ---------------------------------------------------------------------------
-# Install KiCad dependencies
-# ---------------------------------------------------------------------------
-#
-# All dependencies come from the pinned homebrew/core revision.
-#
-# No individual formula pinning is required.
-#
-# In particular:
-#
-#   nng
-#   openssl@3
-#   xz
-#   lz4
-#
-# are all resolved from the same historical Core revision.
-#
-
-echo "Installing KiCad dependencies from pinned homebrew/core..."
-
+echo "Installing KiCad dependencies..."
 echo "Dependencies:"
 printf '  %s\n' "${BREW_DEPS[@]}"
 
-
 arch -x86_64 "${BREW}" install "${BREW_DEPS[@]}"
+
+
+# ---------------------------------------------------------------------------
+# Pin openssl@3 to the known-good version
+# ---------------------------------------------------------------------------
+#
+# This is the only formula currently pinned, justified by the observed
+# architecture mismatch (section 10). All other formulas rely on the normal
+# Homebrew install above until CI verification shows another mismatch.
+#
+# The pin uses the historical Homebrew formula file from the homebrew/core
+# commit that carried the desired 3.6.3 bottle. HOMEBREW_NO_INSTALL_FROM_API
+# is set only for this install so the local .rb file is honoured.
+#
+# If the bottle is no longer downloadable, the install will fall back to a
+# source build; that source build needs the Patches/ files from the
+# homebrew/core checkout, which a URL install cannot provide. If we ever
+# hit that case, switch to a small vendored tap (section 9, second choice).
+# Until CI shows that failure, the URL install is the smallest mechanism.
+
+echo "Pinning ${OPENSSL_PIN_FORMULA} to ${OPENSSL_PIN_VERSION}..."
+
+CURRENT_OPENSSL_VERSION="$(
+  arch -x86_64 "${BREW}" list --versions "${OPENSSL_PIN_FORMULA}" 2>/dev/null \
+    | awk '{print $2}'
+)"
+
+echo "  current ${OPENSSL_PIN_FORMULA} version: ${CURRENT_OPENSSL_VERSION:-<none>}"
+echo "  desired ${OPENSSL_PIN_FORMULA} version: ${OPENSSL_PIN_VERSION}"
+
+if [ "${CURRENT_OPENSSL_VERSION}" = "${OPENSSL_PIN_VERSION}" ]; then
+  echo "  already at ${OPENSSL_PIN_VERSION}; nothing to do."
+else
+  if [ -n "${CURRENT_OPENSSL_VERSION}" ]; then
+    echo "  uninstalling existing ${OPENSSL_PIN_FORMULA} ${CURRENT_OPENSSL_VERSION}..."
+    arch -x86_64 "${BREW}" uninstall --ignore-dependencies "${OPENSSL_PIN_FORMULA}" || true
+  fi
+
+  echo "  installing historical formula from:"
+  echo "    ${OPENSSL_PIN_URL}"
+
+  HOMEBREW_NO_INSTALL_FROM_API=1 \
+    arch -x86_64 "${BREW}" install "${OPENSSL_PIN_URL}"
+fi
 
 
 # ---------------------------------------------------------------------------
@@ -270,32 +246,17 @@ done
 
 
 # ---------------------------------------------------------------------------
-# Explicitly verify nng
+# Explicitly verify openssl@3 (the only currently pinned formula)
 # ---------------------------------------------------------------------------
 
 echo
-echo "Verifying nng..."
+echo "Verifying openssl@3..."
 
-if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "nng"; then
-  arch -x86_64 "${BREW}" list --versions nng
-  arch -x86_64 "${BREW}" info nng
+if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "openssl@3"; then
+  arch -x86_64 "${BREW}" list --versions openssl@3
+  arch -x86_64 "${BREW}" info openssl@3
 else
-  echo "nng is not present in BREW_DEPS."
-fi
-
-
-# ---------------------------------------------------------------------------
-# Explicitly verify openssl
-# ---------------------------------------------------------------------------
-
-echo
-echo "Verifying openssl..."
-
-if printf '%s\n' "${BREW_DEPS[@]}" | grep -qx "openssl"; then
-  arch -x86_64 "${BREW}" list --versions openssl
-  arch -x86_64 "${BREW}" info openssl
-else
-  echo "openssl is not present in BREW_DEPS."
+  echo "openssl@3 is not present in BREW_DEPS."
 fi
 
 
@@ -327,18 +288,6 @@ arch -x86_64 "${BREW}" --version
 echo
 echo "Homebrew prefix:"
 arch -x86_64 "${BREW}" --prefix
-
-echo
-echo "Homebrew configuration:"
-arch -x86_64 "${BREW}" config
-
-echo
-echo "Homebrew Core:"
-git -C "${CORE_REPO}" log -1 --oneline
-
-echo
-echo "Homebrew Core revision:"
-git -C "${CORE_REPO}" rev-parse HEAD
 
 echo
 echo "Done!"
