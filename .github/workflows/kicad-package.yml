@@ -11,12 +11,14 @@ on:
 #
 # ARM64 and x86_64 are built as INDEPENDENT GitHub Actions matrix jobs that
 # run in parallel on separate Apple Silicon (macos-14) runners. Each job
-# bootstraps and builds only its own architecture and produces an
-# architecture-specific DMG. A publish-release job (needs: build) downloads
-# both DMGs and uploads them to the GitHub release.
+# bootstraps, builds ONLY its own architecture, produces an
+# architecture-specific DMG, and — immediately when its build finishes —
+# uploads that DMG directly to the GitHub release.
 #
-# There is NO universal binary, NO lipo step, and NO universal DMG. The two
-# jobs do NOT depend on each other (fail-fast: false).
+# There is NO universal binary, NO lipo step, NO universal DMG, and NO
+# blocking publish-release job that waits for both architectures. The two
+# jobs do NOT depend on each other (fail-fast: false); each uploads its
+# own DMG asset the moment it's ready.
 # ---------------------------------------------------------------------------
 
 jobs:
@@ -151,6 +153,7 @@ jobs:
       - name: Rename DMG to release asset name
         env:
           RELEASE_NAME: huaqiu-${{ steps.latest-release.outputs.tag }}-macos-${{ matrix.arch }}
+        id: rename-dmg
         run: |
           # package.sh produces build/dmg/kicad-unified-${RELEASE_NAME}.dmg.
           # The release must contain kicad-${RELEASE_NAME}.dmg (no "unified",
@@ -178,7 +181,11 @@ jobs:
             echo "Note: kicad binary not found inside DMG to inspect."
           fi
           hdiutil detach "$(hdiutil info | grep -A1 "$MNT" | grep '^/dev/' | awk '{print $1}')" -force || true
+          echo "dmg_path=$DST" >> "$GITHUB_OUTPUT"
 
+      # Artifact upload is kept as a backup (for debugging / archival). It
+      # runs AFTER the rename step but BEFORE the release upload so that
+      # a network hiccup during release upload doesn't lose the artifact.
       - name: Upload DMG artifact (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
@@ -187,75 +194,17 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ---------------------------------------------------------------------------
-  # publish-release: depends on BOTH architecture builds, uploads the two
-  # architecture-specific DMGs to the GitHub release. Does not depend on one
-  # architecture to build the other (section 8 / section 15).
-  # ---------------------------------------------------------------------------
-  publish-release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Get latest tag
-        id: latest-release
-        uses: oprypin/find-latest-tag@v1
-        with:
-          repository: Huaqiu-Electronics/kicad-mac-builder
-          releases-only: true
-
-      - name: Download arm64 DMG
-        uses: actions/download-artifact@v4
-        with:
-          name: kicad-dmg-arm64
-          path: ./artifacts/arm64
-
-      - name: Download x86_64 DMG
-        uses: actions/download-artifact@v4
-        with:
-          name: kicad-dmg-x86_64
-          path: ./artifacts/x86_64
-
-      - name: Show downloaded DMGs
-        run: |
-          echo "Downloaded DMGs:"
-          find ./artifacts -name "*.dmg" -print
-          echo
-          echo "Sizes:"
-          find ./artifacts -name "*.dmg" -exec ls -lh {} \;
-
-      - name: Locate DMG paths
-        id: dmgs
-        run: |
-          ARM64_DMG="$(find ./artifacts/arm64 -name '*.dmg' | head -n1)"
-          X86_DMG="$(find ./artifacts/x86_64 -name '*.dmg' | head -n1)"
-          if [ -z "$ARM64_DMG" ]; then
-            echo "ERROR: arm64 DMG not found in ./artifacts/arm64"
-            exit 1
-          fi
-          if [ -z "$X86_DMG" ]; then
-            echo "ERROR: x86_64 DMG not found in ./artifacts/x86_64"
-            exit 1
-          fi
-          echo "arm64 DMG: $ARM64_DMG"
-          echo "x86_64 DMG: $X86_DMG"
-          echo "arm64_dmg=$ARM64_DMG" >> "$GITHUB_OUTPUT"
-          echo "x86_dmg=$X86_DMG" >> "$GITHUB_OUTPUT"
-
-      - name: Upload arm64 DMG to release
+      # -------------------------------------------------------------------
+      # Direct, immediate release upload — per architecture, as soon as
+      # THIS matrix job's build & rename succeed. No waiting for the OTHER
+      # architecture's matrix job. Each upload targets a different asset
+      # name (arm64 vs x86_64) so there is no race / overwrite risk.
+      # -------------------------------------------------------------------
+      - name: Upload ${{ matrix.arch }} DMG to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
-          file: ${{ steps.dmgs.outputs.arm64_dmg }}
-          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-macos-arm64.dmg
-          overwrite: true
-          tag: ${{ steps.latest-release.outputs.tag }}
-
-      - name: Upload x86_64 DMG to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.HUAQIU_ELECTRONICS_TOKEN }}
-          file: ${{ steps.dmgs.outputs.x86_dmg }}
-          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-macos-x86_64.dmg
+          file: ${{ steps.rename-dmg.outputs.dmg_path }}
+          asset_name: kicad-huaqiu-${{ steps.latest-release.outputs.tag }}-macos-${{ matrix.arch }}.dmg
           overwrite: true
           tag: ${{ steps.latest-release.outputs.tag }}
