@@ -114,6 +114,13 @@ echo "Verifying ${ARCH} Homebrew dependencies..."
 ISSUES=""
 for dep in "${BREW_DEPS[@]}"; do
   version="$("${VERIFY_BREW[@]}" list --versions "${dep}" 2>/dev/null || true)"
+  # Homebrew alias fallback: "openssl" is an alias pointing to "openssl@3".
+  # brew list --versions <alias> can behave differently across brew versions,
+  # so retry with the concrete formula name if the alias lookup returned
+  # nothing.
+  if [ -z "${version}" ] && [ "${dep}" = "openssl" ]; then
+    version="$("${VERIFY_BREW[@]}" list --versions "openssl@3" 2>/dev/null || true)"
+  fi
   if [ -z "${version}" ]; then
     echo "  MISSING: ${dep}"
     ISSUES="${ISSUES}${dep} not installed in ${ARCH} Homebrew\n"

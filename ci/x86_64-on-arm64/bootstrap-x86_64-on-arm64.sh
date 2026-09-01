@@ -48,6 +48,18 @@ arch -x86_64 /usr/local/bin/brew update
 
 echo "Installing some dependencies"
 
+# ---------------------------------------------------------------------------
+# x86_64 sonoma is Tier 3 in homebrew-core. Many formulas no longer ship
+# prebuilt bottles for this arch/OS. The three formulas below are the
+# root-level "no bottle available!" failures that cause transitive dependents
+# (opencascade, harfbuzz, cairo, wget, libgit2, swig) to also fail.
+# Force them to build from source BEFORE the bulk install so the rest of
+# BREW_DEPS can resolve their dependencies correctly.
+# ---------------------------------------------------------------------------
+arch -x86_64 /usr/local/bin/brew install --build-from-source openssl@3 || true
+arch -x86_64 /usr/local/bin/brew install --build-from-source nng || true
+arch -x86_64 /usr/local/bin/brew install --build-from-source pcre2 || true
+
 arch -x86_64 /usr/local/bin/brew install "${BREW_DEPS[@]}" || true
 arch -x86_64 /usr/local/bin/brew upgrade "${BREW_DEPS[@]}" || true
 # Clean up brew
