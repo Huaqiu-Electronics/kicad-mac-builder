@@ -63,40 +63,14 @@ if [ "${ARCH}" != "arm64" ] && [ "${ARCH}" != "x86_64" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Validate host + target architecture combination.
-#
-# The supported configurations are:
-#   arm64  host  -> arm64  target   (Apple Silicon native, macos-14 runner)
-#   arm64  host  -> x86_64 target   (Apple Silicon + Rosetta 2)
-#   x86_64 host  -> x86_64 target   (Native Intel, macos-15-intel runner)
-#
-# An arm64 host attempting an arm64 target or an x86_64 host attempting an
-# arm64 target are rejected as unsupported.
+# Verify Apple Silicon host (both arch builds run on Apple Silicon runners)
 # ---------------------------------------------------------------------------
 
-HOST_ARCH="$(uname -m)"
-
-case "${HOST_ARCH}" in
-  arm64)
-    # arm64 host can build either arm64 natively or x86_64 via Rosetta 2
-    if [ "$(arch)" != "arm64" ] && [ "${ARCH}" = "arm64" ]; then
-      echo "ERROR: building arm64 target requires a native arm64 shell."
-      echo "       Current 'arch' reports: $(arch) — are you inside a Rosetta terminal?"
-      exit 1
-    fi
-    ;;
-  x86_64)
-    # Native Intel host can only build x86_64 target
-    if [ "${ARCH}" != "x86_64" ]; then
-      echo "ERROR: native x86_64 host can only build x86_64 target, got: ${ARCH}"
-      exit 1
-    fi
-    ;;
-  *)
-    echo "ERROR: unsupported host architecture: ${HOST_ARCH}"
-    exit 1
-    ;;
-esac
+if [ "$(arch)" != "arm64" ]; then
+  echo "ERROR: expected 'arch' to return 'arm64' (Apple Silicon host)."
+  echo "       Are you in a terminal running under Rosetta?"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Architecture identification (docs/split-packaging.md section 14)
@@ -107,9 +81,9 @@ echo "Building KiCad for ${ARCH}"
 echo "============================================================"
 
 echo "Host architecture:"
-echo "  uname -m (kernel arch): ${HOST_ARCH}"
-echo "  arch (process arch):    $(arch)"
-echo "  Target build arch:      ${ARCH}"
+echo "  uname -m: $(uname -m)"
+echo "  arch:     $(arch)"
+echo "  Building ${ARCH}"
 
 # ---------------------------------------------------------------------------
 # Verify only THIS architecture's Homebrew dependencies (not --both).

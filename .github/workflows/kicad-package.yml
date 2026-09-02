@@ -23,25 +23,18 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.runs_on }}
+    runs-on: macos-14   # macOS 14 / Xcode 16.2 baseline (do not switch for this task)
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ARM64 builds remain on macos-14 (Apple Silicon).
+          # Both jobs run on Apple Silicon runners. The x86_64 build uses
+          # Rosetta 2 and the /usr/local Homebrew installation, exactly like
+          # ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh.
           - arch: arm64
-            runs_on: macos-14
-            keep_xcode: /Applications/Xcode_16.2.app
             bootstrap_script: ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
-          # x86_64 builds now run on a NATIVE Intel runner (macos-15-intel).
-          # No Rosetta 2 cross-compilation required — Homebrew / compiler
-          # toolchain are all natively x86_64. Uses the dedicated native-x86_64
-          # bootstrap (ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh)
-          # which avoids the `arch -x86_64` prefix entirely.
           - arch: x86_64
-            runs_on: macos-15-intel
-            keep_xcode: /Applications/Xcode_16.2.app
-            bootstrap_script: ./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh
+            bootstrap_script: ./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
 
     steps:
       - name: Checkout repo
@@ -52,58 +45,31 @@ jobs:
           echo "Initial disk usage:"
           df -h
 
-      - name: Free disk spaces (keep Xcode)
-        env:
-          WANTED_XCODE: ${{ matrix.keep_xcode }}
+      - name: Free disk spaces (keep Xcode 16.2)
         run: |
           echo "Cleaning large preinstalled software..."
 
-          # The Xcode version to keep — prefer WANTED_XCODE if it exists,
-          # otherwise fall back to whatever /Applications/Xcode.app currently
-          # points to (so macos-15-intel runners without Xcode 16.2 still
-          # retain a valid Xcode installation).
-          KEEP_XCODE="${WANTED_XCODE}"
+          # The Xcode version to keep
+          KEEP_XCODE="/Applications/Xcode_16.2.app"
           KEEP_SYMLINK="/Applications/Xcode.app"
 
-          if [ ! -d "$KEEP_XCODE" ]; then
-            if [ -L "$KEEP_SYMLINK" ]; then
-              TGT="$(readlink "$KEEP_SYMLINK" || true)"
-              case "$TGT" in
-                /*) KEEP_XCODE="$TGT" ;;
-                *)  KEEP_XCODE="/Applications/$TGT" ;;
-              esac
-              echo "Wanted Xcode ($WANTED_XCODE) not found; keeping Xcode.app target: $KEEP_XCODE"
-            elif [ -d "$KEEP_SYMLINK" ]; then
-              KEEP_XCODE="$KEEP_SYMLINK"
-              echo "Wanted Xcode ($WANTED_XCODE) not found; keeping Xcode.app as-is"
-            else
-              KEEP_XCODE=""
-              echo "Warn: no Xcode found to keep, skipping Xcode cleanup"
+          # Remove all other Xcodes
+          for xcode in /Applications/Xcode*.app; do
+            if [ "$xcode" != "$KEEP_XCODE" ] && [ "$xcode" != "$KEEP_SYMLINK" ]; then
+              echo "Removing $xcode ..."
+              sudo rm -rf "$xcode"
             fi
-          else
-            echo "Keeping pinned Xcode: $KEEP_XCODE"
-          fi
+          done
 
-          # Remove all other Xcodes (if any kept Xcode was resolved)
-          if [ -n "$KEEP_XCODE" ]; then
-            for xcode in /Applications/Xcode*.app; do
-              [ -e "$xcode" ] || continue
-              if [ "$xcode" != "$KEEP_XCODE" ] && [ "$xcode" != "$KEEP_SYMLINK" ]; then
-                echo "Removing $xcode ..."
-                sudo rm -rf "$xcode"
-              fi
-            done
+          # Optional: remove old simulators and user Xcode caches
+          sudo rm -rf /Library/Developer/CoreSimulator || true
+          sudo rm -rf ~/Library/Developer/Xcode || true
 
-            # Optional: remove old simulators and user Xcode caches
-            sudo rm -rf /Library/Developer/CoreSimulator || true
-            sudo rm -rf ~/Library/Developer/Xcode || true
-
-            # Ensure Xcode selection points to the version we want
-            sudo xcode-select -s "$KEEP_XCODE"
-          fi
+          # Ensure Xcode selection points to the version we want
+          sudo xcode-select -s "$KEEP_XCODE"
 
           echo "Selected Xcode version:"
-          xcodebuild -version || true
+          xcodebuild -version
           clang++ --version
 
           # Remove Android SDK
