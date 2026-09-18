@@ -15,15 +15,13 @@
     "A single build can still override any field with",
     "    build.py --edge-headless-version ... --edge-headless-sha256 ... --edge-headless-url ..."
   ],
-
   "edgeHeadless": {
     "enable": true,
     "version": "0.1.4",
     "asset": "edge-headless-darwin-arm64.zip",
-    "sha256": "fb99c954669145bb550a400f6debcd146cd6350a71f81151a026fb4807eed8a1",
+    "sha256": "ed755c0cfe068cb923c2b588c459e07946e22993a138ae46aed2fc586fdab415",
     "repoUrl": "https://github.com/Huaqiu-Electronics/edge-headless/releases/download",
-
     "url": "",
-    "notes": "The macOS arm64 asset is NOT published to GitHub yet. sha256 above was computed from the local staging artifact /Users/admin/code/hq-edge/dist/edge-headless.zip, which is what the release workflow will publish. Until then build with: build.py --arch arm64 --edge-headless-url /Users/admin/code/hq-edge/dist/edge-headless.zip"
+    "notes": "0.1.4 darwin-arm64, built by 'pnpm dist:edge-headless:zip:darwin-arm64' in hq-edge (single edge-headless/ root, no __MACOSX, no dsh/.dsh)."
   }
 }
