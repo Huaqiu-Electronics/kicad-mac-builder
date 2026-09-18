@@ -3,6 +3,17 @@
 set -x
 set -e
 
+# NOTE (2026-09): this script is NOT USED BY CI any more. The x86_64 CI job
+# runs on a NATIVE Intel runner (macos-15-intel) and uses
+# ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh instead.
+#
+# Building x86_64 on an Apple Silicon host no longer works either: Homebrew's
+# installer aborts with "Homebrew on macOS is only supported on Apple Silicon
+# processors!" when `uname -m` is not arm64, so the Intel/Rosetta Homebrew in
+# /usr/local cannot be installed on an Apple Silicon runner. This script is
+# kept for local machines that still have a pre-existing /usr/local (Intel)
+# Homebrew installation.
+
 # This script helps you set up an M1 Mac to build the x86_64 version of KiCad.
 # This is not intended to be the complete answer to "M1 support".
 

@@ -146,10 +146,33 @@ jobs:
             runner: macos-14
 
           - arch: x86_64
-            runner: macos-14
+            runner: macos-15-intel
 ```
 
-The exact runner configuration should be determined from the existing repository and current GitHub Actions compatibility.
+`x86_64` runs on the **native Intel** `macos-15-intel` runner, not on
+`macos-14` under Rosetta 2. Homebrew's installer now aborts with
+
+```text
+Homebrew on macOS is only supported on Apple Silicon processors!
+```
+
+when `uname -m` is not `arm64`, so the Intel/Rosetta Homebrew in `/usr/local`
+can no longer be installed on an Apple Silicon runner — and without it there
+are no x86_64 bottles for gRPC / protobuf / wxWidgets, so KiCad's configure
+fails in `hq/sdk/cpp` (`find_package( gRPC CONFIG REQUIRED )`).
+
+On a native Intel runner `brew` is already x86_64, so
+`ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh` is used (no
+`arch -x86_64` prefix anywhere).
+
+Because `macos-15-intel` may not ship the pinned `Xcode_16.2.app`, the
+"Free disk spaces" step falls back to whatever `/Applications/Xcode.app`
+points at when the wanted Xcode is missing (see
+`.github/workflows/kicad-package.yml`).
+
+`ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh` (Rosetta) is kept for local
+machines that still have a pre-existing `/usr/local` Intel Homebrew, but CI
+does not use it.
 
 ### Important
 
@@ -195,6 +218,7 @@ Before modifying the workflow, inspect:
 ci/src/
 ci/arm64-on-arm64/
 ci/x86_64-on-arm64/
+ci/x86_64-on-x86_64/
 ```
 
 and determine how:
