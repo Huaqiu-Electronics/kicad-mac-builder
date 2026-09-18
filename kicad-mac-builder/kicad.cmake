@@ -140,7 +140,9 @@ if(DEFINED REDISTRIBUTABLE)
             kicad
             sign-app
             COMMENT "Signing KiCad.app and its contents"
-            DEPENDEES fix-loading
+            # edge-headless must already be inside the bundle: the application
+            # signature has to cover the bundled executables.
+            DEPENDEES fix-loading install-edge-headless-into-app
             # we can't modify KiCad.app after this without resigning
             COMMAND "${BIN_DIR}/apple.py" sign --certificate-id "${SIGNING_CERTIFICATE_ID}" ${HARDENED_RUNTIME_ARG} --entitlements "${BIN_DIR}/../signing/entitlements.plist" "${KICAD_INSTALL_DIR}/KiCad.app"
     )
@@ -150,7 +152,9 @@ else()
             sign-app
             COMMENT "Signing KiCad.app and its contents"
             # DEPENDEES install-docs-into-app install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
-            DEPENDEES install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app # demos?
+            # install-edge-headless-into-app must run first: the application
+            # signature has to cover the bundled edge-headless executables.
+            DEPENDEES install collect-licenses install-footprints-into-app install-symbols-into-app install-templates-into-app install-packages3d-into-app install-edge-headless-into-app # demos?
 
             # we can't modify KiCad.app after this without resigning
             COMMAND "${BIN_DIR}/apple.py" sign --certificate-id "${SIGNING_CERTIFICATE_ID}" ${HARDENED_RUNTIME_ARG} --entitlements "${BIN_DIR}/../signing/entitlements.plist" "${KICAD_INSTALL_DIR}/KiCad.app"

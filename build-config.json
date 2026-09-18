@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Single source of truth for the pinned hq-edge edge-headless runtime that gets",
+    "bundled into KiCad.app/Contents/Resources/edge-headless on Apple Silicon.",
+    "",
+    "Read at CMake configure time by kicad-mac-builder/edge-headless.cmake, so editing",
+    "this file changes what the next `build.py` run downloads (nothing is ever fetched",
+    "from a floating 'latest' URL).",
+    "",
+    "Update it with:",
+    "    kicad-mac-builder/bin/pin-edge-headless.py --version <tag> --local <zip>",
+    "which computes the SHA256 for you, or hand-edit and validate with",
+    "    kicad-mac-builder/bin/pin-edge-headless.py --print / --check <zip>",
+    "",
+    "A single build can still override any field with",
+    "    build.py --edge-headless-version ... --edge-headless-sha256 ... --edge-headless-url ..."
+  ],
+
+  "edgeHeadless": {
+    "enable": true,
+    "version": "0.1.3",
+    "asset": "edge-headless-darwin-arm64.zip",
+    "sha256": "a8a9f222bb502f952d17344694771aa2f18ee85b6e796cfcc19eeff1f3fb5f64",
+    "repoUrl": "https://github.com/Huaqiu-Electronics/edge-headless/releases/download",
+
+    "url": "",
+    "notes": "The macOS arm64 asset is NOT published to GitHub yet. sha256 above was computed from the local staging artifact /Users/admin/code/hq-edge/dist/edge-headless.zip, which is what the release workflow will publish. Until then build with: build.py --arch arm64 --edge-headless-url /Users/admin/code/hq-edge/dist/edge-headless.zip"
+  }
+}

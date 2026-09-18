@@ -3,6 +3,14 @@ project( KiCadMacBuilder )
 
 cmake_policy(SET CMP0135 NEW)
 
+# ExternalProject step targets fully adopt their steps — keeps the
+# `install-edge-headless-into-app` target from emitting a dev warning.
+# (It must be set here: policies set inside an included .cmake file are
+# reverted when that file ends.)
+if( POLICY CMP0114 )
+    cmake_policy( SET CMP0114 NEW )
+endif()
+
 include( ExternalProject )
 
 if( NOT DEFINED KICAD_CMAKE_BUILD_TYPE )
@@ -166,6 +174,11 @@ include( templates.cmake )
 include( packages3d.cmake )
 
 include( kicad.cmake )
+
+# edge-headless (HQ Edge / DSH runtime) must be included AFTER kicad.cmake:
+# it attaches the install-edge-headless-into-app step to the `kicad`
+# ExternalProject, which is defined there.
+include( edge-headless.cmake )
 
 include( package_kicad_nightly.cmake )
 include( package_kicad_unified.cmake )

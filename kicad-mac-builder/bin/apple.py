@@ -19,6 +19,66 @@ import sys
 
 logging.basicConfig(level=logging.DEBUG)
 
+# Bundled HQ Edge / DSH runtime (Apple Silicon arm64 builds only -- see
+# edge-headless.cmake).  It lives inside the application bundle, so every
+# Mach-O image it ships (bin/node, native .node addons, dylibs, vendored CLI
+# binaries) is nested code: it must be signed before the outer bundle or
+# notarization / `codesign --verify --deep --strict` will reject the app.
+EDGE_HEADLESS_REL_PATH = "Contents/Resources/edge-headless"
+
+# Mach-O / fat magic numbers.  0xCAFEBABE is shared with Java .class files, so
+# those extensions are excluded explicitly below.
+MACHO_MAGICS = (
+    b"\xfe\xed\xfa\xce",  # MH_MAGIC    (32-bit, big-endian host)
+    b"\xce\xfa\xed\xfe",  # MH_MAGIC    (32-bit)
+    b"\xfe\xed\xfa\xcf",  # MH_MAGIC_64 (64-bit, big-endian host)
+    b"\xcf\xfa\xed\xfe",  # MH_MAGIC_64 (64-bit)
+    b"\xca\xfe\xba\xbe",  # FAT_MAGIC
+    b"\xca\xfe\xba\xbf",  # FAT_MAGIC_64
+)
+
+NOT_MACHO_SUFFIXES = (".class", ".jar")
+
+
+def is_macho(path):
+    """True if `path` is a Mach-O image (executable, dylib or .node addon).
+
+    Detection is by magic number rather than extension because the bundled
+    runtime ships native addons as `.node`, vendored CLIs with no extension at
+    all, and -- importantly -- a very large number of plain .js files that must
+    NOT be handed to codesign.
+    """
+    if os.path.islink(path):
+        return False
+
+    if path.endswith(NOT_MACHO_SUFFIXES):
+        return False
+
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(4) in MACHO_MAGICS
+    except OSError:
+        return False
+
+
+def get_macho_paths(root):
+    """Every Mach-O file under `root`, deepest-first.
+
+    Nothing in the bundled runtime nests code inside code, so ordering within
+    the tree does not matter; it is only guaranteed to run before the outer
+    bundle (which the caller appends last).
+    """
+    found = []
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            path = os.path.join(dirpath, filename)
+
+            if is_macho(path):
+                found.append(path)
+
+    return found
+
 
 def get_kicad_paths_for_signing(dotapp_path):
     to_sign = []
@@ -114,6 +174,14 @@ def get_kicad_paths_for_signing(dotapp_path):
     to_sign.append(os.path.join(dotapp_path, "Contents/MacOS/kicad-cli"))
     to_sign.append(os.path.join(dotapp_path, "Contents/MacOS/kicad"))
 
+    # Bundled HQ Edge / DSH runtime (Apple Silicon only).  Sign every Mach-O
+    # image inside it before the enclosing bundle -- Apple requires nested
+    # distribution content to be signed from the inside outward.
+    edge_headless_dir = os.path.join(dotapp_path, EDGE_HEADLESS_REL_PATH)
+
+    if os.path.isdir(edge_headless_dir):
+        to_sign.extend(get_macho_paths(edge_headless_dir))
+
     to_sign.append(dotapp_path)
 
     return to_sign
@@ -167,6 +235,14 @@ def verify_signing(dotapp_path, verify_timestamps=True):
         with os.scandir(os.path.join(dotapp_path, "Contents", "MacOS")) as entries:
             for entry in entries:
                 check_timestamps.append(entry.path)
+
+        # The bundled edge-headless node binary is the executable that the app
+        # actually launches; verify it carries a secure timestamp too.
+        bundled_node = os.path.join(dotapp_path, EDGE_HEADLESS_REL_PATH, "bin", "node")
+
+        if os.path.isfile(bundled_node):
+            check_timestamps.append(bundled_node)
+
         for path in check_timestamps:
             if not has_secure_timestamp(path):
                 raise Exception("{} does not have a secure timestamp".format(path))

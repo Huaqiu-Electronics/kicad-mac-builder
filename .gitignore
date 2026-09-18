@@ -17,3 +17,9 @@ build-x86_64/
 toolchain
 *.o
 virtualenv
+
+# kicad-mac-builder/bin holds tracked build scripts (apple.py, package.sh,
+# fetch-edge-headless.sh, verify-edge-headless.sh, pin-edge-headless.py, ...). A global gitignore
+# rule for any directory named "bin" would hide newly added files there, so
+# re-include the directory explicitly (repository rules win over global ones).
+!kicad-mac-builder/bin/

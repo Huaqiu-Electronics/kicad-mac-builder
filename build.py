@@ -151,6 +151,33 @@ def parse_args(args):
                         action="store_true",
                         help="Fix KiCad bundle to work on other machines. This requires wrangle-bundle from dyldstyle, and is implied for releases, packaged builds, and notarized builds.")
 
+    edge_headless_group = parser.add_argument_group('edge-headless (HQ Edge / DSH runtime)',
+        description="On Apple Silicon (--arch arm64) the pinned edge-headless runtime is bundled "
+                    "into KiCad.app/Contents/Resources/edge-headless. The pin lives in "
+                    "build-config.json (version + SHA256; update it with "
+                    "kicad-mac-builder/bin/pin-edge-headless.py); nothing is ever downloaded at "
+                    "application runtime.")
+    edge_headless_group.add_argument("--edge-headless-config",
+                                     dest="edge_headless_config",
+                                     help="Alternative pin file (default: build-config.json).")
+    edge_headless_group.add_argument("--edge-headless-version",
+                                     dest="edge_headless_version",
+                                     help="Override the pinned edge-headless release tag.")
+    edge_headless_group.add_argument("--edge-headless-sha256",
+                                     dest="edge_headless_sha256",
+                                     help="Override the expected SHA256 of the edge-headless asset. "
+                                          "Must be changed together with --edge-headless-version.")
+    edge_headless_group.add_argument("--edge-headless-url",
+                                     dest="edge_headless_url",
+                                     help="Fetch the edge-headless artifact from this location instead "
+                                          "of the GitHub release. Accepts https://, file:// or a plain "
+                                          "path -- use it to stage an artifact that has not been "
+                                          "published yet.")
+    edge_headless_group.add_argument("--no-edge-headless",
+                                     action="store_true",
+                                     dest="no_edge_headless",
+                                     help="Do not bundle edge-headless (the Intel macOS behaviour).")
+
     signing_group = parser.add_argument_group('signing and notarization', description="By default, kicad-mac-builder uses ad-hoc signing and doesn't submit targets for notarization.")
     signing_group.add_argument("--signing-identity",
                         dest="signing_identity",
@@ -320,6 +347,21 @@ def build(args, new_path):
 
     if args.extra_kicad_cmake_args:
         cmake_command.append("-DKICAD_CMAKE_ARGS_EXTRA='{}'".format(args.extra_kicad_cmake_args))
+
+    if args.edge_headless_config:
+        cmake_command.append("-DEDGE_HEADLESS_CONFIG_FILE={}".format(args.edge_headless_config))
+
+    if args.edge_headless_version:
+        cmake_command.append("-DEDGE_HEADLESS_VERSION={}".format(args.edge_headless_version))
+
+    if args.edge_headless_sha256:
+        cmake_command.append("-DEDGE_HEADLESS_SHA256={}".format(args.edge_headless_sha256))
+
+    if args.edge_headless_url:
+        cmake_command.append("-DEDGE_HEADLESS_URL={}".format(args.edge_headless_url))
+
+    if args.no_edge_headless:
+        cmake_command.append("-DEDGE_HEADLESS_ENABLE=OFF")
 
     if args.signing_identity:
         cmake_command.append("-DSIGNING_IDENTITY={}".format(args.signing_identity))
