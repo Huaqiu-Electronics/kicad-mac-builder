@@ -9,16 +9,27 @@ on:
 # ---------------------------------------------------------------------------
 # Split packaging (docs/split-packaging.md)
 #
-# ARM64 and x86_64 are built as INDEPENDENT GitHub Actions matrix jobs that
-# run in parallel on separate Apple Silicon (macos-14) runners. Each job
+# Each architecture is an INDEPENDENT GitHub Actions matrix job that
 # bootstraps, builds ONLY its own architecture, produces an
 # architecture-specific DMG, and — immediately when its build finishes —
 # uploads that DMG directly to the GitHub release.
 #
-# There is NO universal binary, NO lipo step, NO universal DMG, and NO
-# blocking publish-release job that waits for both architectures. The two
-# jobs do NOT depend on each other (fail-fast: false); each uploads its
-# own DMG asset the moment it's ready.
+# There is NO universal binary, NO lipo step and NO universal DMG.
+#
+# ARCHITECTURES SHIPPED: arm64 ONLY.
+#
+# x86_64 (Intel) packaging is deliberately not built: edge-headless (the HQ
+# Edge / DSH runtime) is pinned for darwin-arm64 only, so an Intel build
+# would ship without the bundled runtime and fall back to the online
+# Copilot at https://chat.eda.cn/. On top of that, Homebrew's installer now
+# refuses to run under Rosetta, so an x86_64 job on an Apple Silicon runner
+# cannot even bootstrap.
+#
+# To re-enable Intel builds later: add a second entry below with
+#   runs_on: macos-15-intel      (native Intel runner — the last x86_64
+#                                 image GitHub offers, supported to 2027)
+#   bootstrap_script: ./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh
+# and ship an edge-headless darwin-x64 pin (see build-config.json).
 # ---------------------------------------------------------------------------
 
 jobs:
@@ -28,20 +39,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ARM64 builds remain on macos-14 (Apple Silicon).
+          # Apple Silicon only (see the header comment for why x86_64 is
+          # not built, and what it would take to bring it back).
           - arch: arm64
             runs_on: macos-14
             keep_xcode: /Applications/Xcode_16.2.app
             bootstrap_script: ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
-          # x86_64 builds now run on a NATIVE Intel runner (macos-15-intel).
-          # No Rosetta 2 cross-compilation required — Homebrew / compiler
-          # toolchain are all natively x86_64. Uses the dedicated native-x86_64
-          # bootstrap (ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh)
-          # which avoids the `arch -x86_64` prefix entirely.
-          - arch: x86_64
-            runs_on: macos-15-intel
-            keep_xcode: /Applications/Xcode_16.2.app
-            bootstrap_script: ./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh
 
     steps:
       - name: Checkout repo
@@ -167,7 +170,7 @@ jobs:
           FOOTPRINTS_REF: ${{ steps.latest-release.outputs.tag }}
           PACKAGES3D_REF: ${{ steps.latest-release.outputs.tag }}
           TEMPLATES_REF: ${{ steps.latest-release.outputs.tag }}
-          # RELEASE_NAME includes the architecture so the two jobs never
+          # RELEASE_NAME includes the architecture so parallel jobs never
           # produce ambiguous output names (section 10). package.sh names the
           # DMG kicad-unified-${RELEASE_NAME}.dmg; the rename step below
           # strips "unified-" to match section 7's required asset names.
@@ -229,10 +232,12 @@ jobs:
           retention-days: 7
 
       # -------------------------------------------------------------------
-      # Direct, immediate release upload — per architecture, as soon as
-      # THIS matrix job's build & rename succeed. No waiting for the OTHER
-      # architecture's matrix job. Each upload targets a different asset
-      # name (arm64 vs x86_64) so there is no race / overwrite risk.
+      # Direct, immediate release upload — as soon as this job's build &
+      # rename succeed. With arm64 as the only matrix entry there is no
+      # other job to wait for and no asset-name race; if a second
+      # architecture is added back, each upload targets a distinct asset
+      # name (-macos-arm64 vs -macos-x86_64) so there is still no
+      # overwrite risk.
       # -------------------------------------------------------------------
       - name: Upload ${{ matrix.arch }} DMG to release
         uses: svenstaro/upload-release-action@v2

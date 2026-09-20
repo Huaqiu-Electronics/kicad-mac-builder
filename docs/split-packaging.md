@@ -1,7 +1,18 @@
 # Task Spec — Split macOS KiCad Packaging into Parallel ARM64 / x86_64 Builds
 
-**Status:** FOR IMPLEMENTATION  
+**Status:** IMPLEMENTED (arm64 only)  
 **Goal:** Replace the current macOS universal-build packaging with two independent architecture-specific DMG builds that run in parallel on GitHub Actions.
+
+> **2026-09-20 — x86_64 is not shipped.** The workflow matrix now contains
+> **arm64 only**; the Intel job has been removed. Reasons:
+> `edge-headless` (the HQ Edge / DSH runtime bundled into `KiCad.app`) is
+> pinned for `darwin-arm64` only, so an Intel build ships without it and
+> Copilot falls back to the online endpoint at `https://chat.eda.cn/`; and
+> Homebrew can no longer bootstrap under Rosetta on an Apple Silicon runner.
+> Everything below still describes the two-architecture design — treat the
+> x86_64 half as a *ready-to-restore path*, not as something CI builds today.
+> To re-enable it, add the `x86_64` matrix entry back (see section 4) **and**
+> ship an `edge-headless-darwin-x64` pin in `build-config.json`.
 
 ## 1. Objective
 
@@ -142,11 +153,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Shipped today.
           - arch: arm64
             runner: macos-14
 
-          - arch: x86_64
-            runner: macos-15-intel
+          # Removed 2026-09-20 — see the status note at the top of this file.
+          # - arch: x86_64
+          #   runner: macos-15-intel
 ```
 
 `x86_64` runs on the **native Intel** `macos-15-intel` runner, not on
@@ -198,10 +211,11 @@ ARM64:
 ./ci/arm64-on-arm64/bootstrap-arm64-on-arm64.sh
 ```
 
-x86_64:
+x86_64 (not built by CI today — see the status note at the top):
 
 ```bash
-./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh
+./ci/x86_64-on-x86_64/bootstrap-x86_64-on_x86_64.sh   # native Intel runner
+./ci/x86_64-on-arm64/bootstrap-x86_64-on-arm64.sh     # Rosetta 2, local only
 ```
 
 Do not run both bootstrap scripts in either job.
@@ -279,8 +293,8 @@ Each architecture must produce a normal standalone macOS DMG.
 Expected release names:
 
 ```text
-kicad-huaqiu-<tag>-macos-arm64.dmg
-kicad-huaqiu-<tag>-macos-x86_64.dmg
+kicad-huaqiu-<tag>-macos-arm64.dmg       # shipped today
+kicad-huaqiu-<tag>-macos-x86_64.dmg     # not built since 2026-09-20
 ```
 
 Do not produce:
