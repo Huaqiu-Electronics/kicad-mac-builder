@@ -17,11 +17,11 @@
   ],
   "edgeHeadless": {
     "enable": true,
-    "version": "0.1.4",
+    "version": "0.1.9",
     "asset": "edge-headless-darwin-arm64.zip",
-    "sha256": "ed755c0cfe068cb923c2b588c459e07946e22993a138ae46aed2fc586fdab415",
+    "sha256": "5ae192831d3ad5b3183fe5103401235f2b50692e0d97502ee7ede37c1948bda4",
     "repoUrl": "https://github.com/Huaqiu-Electronics/edge-headless/releases/download",
     "url": "",
-    "notes": "0.1.4 darwin-arm64, built by 'pnpm dist:edge-headless:zip:darwin-arm64' in hq-edge (single edge-headless/ root, no __MACOSX, no dsh/.dsh)."
+    "notes": "darwin-arm64, built by 'pnpm dist:edge-headless:zip:darwin-arm64' in hq-edge (single edge-headless/ root, no __MACOSX, no dsh/.dsh)."
   }
 }
