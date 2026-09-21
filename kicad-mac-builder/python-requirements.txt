@@ -3,3 +3,4 @@ six
 requests
 attrdict
 sip == 6.8.3
+kicad-python
