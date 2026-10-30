@@ -94,6 +94,18 @@ def parse_args(args):
     parser.add_argument("--kicad-source-dir",
                         help="KiCad source directory to use as-is to build from.  Will not be patched, and cannot create a release.",
                         )
+    parser.add_argument("--symbols-source-dir",
+                        help="Local kicad-symbols checkout to build from instead of git (offline). Conflicts with --symbols-ref.",
+                        )
+    parser.add_argument("--footprints-source-dir",
+                        help="Local kicad-footprints checkout to build from instead of git (offline). Conflicts with --footprints-ref.",
+                        )
+    parser.add_argument("--packages3d-source-dir",
+                        help="Local kicad-packages3D checkout to build from instead of git (offline). Conflicts with --packages3d-ref.",
+                        )
+    parser.add_argument("--templates-source-dir",
+                        help="Local kicad-templates checkout to build from instead of git (offline). Conflicts with --templates-ref.",
+                        )
     parser.add_argument("--symbols-ref",
                         help="KiCad symbols git tag, commit, or branch to build from. Defaults to origin/master.",
                         )
@@ -112,6 +124,10 @@ def parse_args(args):
                         )
     parser.add_argument("--skip-docs-update",
                         help="Skip updating the docs, if they've already been downloaded. Cannot be used to create a release.",
+                        action="store_true"
+                        )
+    parser.add_argument("--skip-docs",
+                        help="Do not fetch or bundle the KiCad documentation at all (offline distribution).",
                         action="store_true"
                         )
     parser.add_argument("--release-name",
@@ -333,8 +349,23 @@ def build(args, new_path):
         if args.kicad_ref:
             cmake_command.append("-DKICAD_TAG={}".format(args.kicad_ref))
 
+    # Offline library checkouts: pass a local source dir for each library repo.
+    # When one is set, the library .cmake uses SOURCE_DIR and ignores its git ref.
+    # (No quotes here: cmake_command is a list, so a quoted value would leak the
+    # literal `"` into the path — cmake then sees .../kicad-footprints"" and fails.)
+    for _lib, _attr in (("SYMBOLS", "symbols_source_dir"),
+                        ("FOOTPRINTS", "footprints_source_dir"),
+                        ("PACKAGES3D", "packages3d_source_dir"),
+                        ("TEMPLATES", "templates_source_dir")):
+        _val = getattr(args, _attr, None)
+        if _val:
+            cmake_command.append("-D{}={}".format(_lib + "_SOURCE_DIR", os.path.realpath(_val)))
+
     if args.skip_docs_update:
         cmake_command.append("-DSKIP_DOCS_UPDATE=ON")
+
+    if args.skip_docs:
+        cmake_command.append("-DKMB_ENABLE_DOCS=OFF")
 
     if args.dmg_dir:
         cmake_command.append("-DDMG_DIR={}".format(args.dmg_dir))

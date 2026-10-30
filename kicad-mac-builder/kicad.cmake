@@ -17,6 +17,13 @@ You can pass: \n\
 instead of pasting the args above. This file is kept in sync.\
 ")
 
+# `docs` is only a dependency when KMB_ENABLE_DOCS is ON (build.py --skip-docs
+# turns it OFF).  Keeps offline distributions from fetching the docs at all.
+set( KICAD_EP_DEPS kicad-build-deps )
+if( KMB_ENABLE_DOCS )
+    list( APPEND KICAD_EP_DEPS docs )
+endif()
+
 if(DEFINED RELEASE_NAME)
     if(NOT DEFINED KICAD_TAG OR "${KICAD_TAG}" STREQUAL "")
       message( FATAL_ERROR "KICAD_TAG must be set for release builds.  Please see the README or try build.py." )
@@ -25,7 +32,7 @@ if(DEFINED RELEASE_NAME)
     ExternalProject_Add(
         kicad
         PREFIX  kicad
-        DEPENDS kicad-build-deps docs
+        DEPENDS ${KICAD_EP_DEPS}
         GIT_REPOSITORY ${KICAD_URL}
         GIT_TAG ${KICAD_TAG}
         UPDATE_COMMAND git fetch
@@ -36,7 +43,7 @@ elseif(NOT DEFINED RELEASE_NAME AND DEFINED KICAD_SOURCE_DIR AND NOT "${KICAD_SO
     ExternalProject_Add(
         kicad
         PREFIX  kicad
-        DEPENDS kicad-build-deps docs
+        DEPENDS ${KICAD_EP_DEPS}
         SOURCE_DIR ${KICAD_SOURCE_DIR}
         CMAKE_ARGS ${KICAD_CMAKE_ARGS}
   )
@@ -48,7 +55,7 @@ elseif(NOT DEFINED RELEASE_NAME AND DEFINED KICAD_TAG AND NOT "${KICAD_TAG}" STR
     ExternalProject_Add(
         kicad
         PREFIX  kicad
-        DEPENDS kicad-build-deps docs
+        DEPENDS ${KICAD_EP_DEPS}
         GIT_REPOSITORY ${KICAD_URL}
         GIT_TAG ${KICAD_TAG}
         UPDATE_COMMAND git fetch

@@ -13,26 +13,32 @@ endif()
 
 include( ExternalProject )
 
+# KiCad help docs.  Set OFF to skip fetching/bundling them entirely (offline
+# distribution that does not need help/).  Pass -DKMB_ENABLE_DOCS=OFF (build.py
+# --skip-docs) so the `docs` ExternalProject is never created and `docs` is
+# removed from every target dependency.
+set( KMB_ENABLE_DOCS ON CACHE BOOL "Fetch and bundle KiCad help docs." )
+
 if( NOT DEFINED KICAD_CMAKE_BUILD_TYPE )
     message( FATAL_ERROR "KICAD_CMAKE_BUILD_TYPE must be set.  Please see the README or try build.py." )
 endif ()
 if( NOT DEFINED KICAD_TAG AND NOT DEFINED KICAD_SOURCE_DIR)
     message( FATAL_ERROR "KICAD_TAG or KICAD_SOURCE_DIR must be set.  Please see the README or try build.py." )
 endif ()
-if( NOT DEFINED PACKAGES3D_TAG )
-    message( FATAL_ERROR "PACKAGES3D_TAG must be set.  Please see the README or try build.py." )
+if( NOT DEFINED PACKAGES3D_TAG AND NOT DEFINED PACKAGES3D_SOURCE_DIR )
+    message( FATAL_ERROR "PACKAGES3D_TAG or PACKAGES3D_SOURCE_DIR must be set.  Please see the README or try build.py." )
 endif ()
-if( NOT DEFINED FOOTPRINTS_TAG )
-    message( FATAL_ERROR "FOOTPRINTS_TAG must be set.  Please see the README or try build.py." )
+if( NOT DEFINED FOOTPRINTS_TAG AND NOT DEFINED FOOTPRINTS_SOURCE_DIR )
+    message( FATAL_ERROR "FOOTPRINTS_TAG or FOOTPRINTS_SOURCE_DIR must be set.  Please see the README or try build.py." )
 endif ()
-if( NOT DEFINED SYMBOLS_TAG )
-    message( FATAL_ERROR "SYMBOLS_TAG must be set.  Please see the README or try build.py." )
+if( NOT DEFINED SYMBOLS_TAG AND NOT DEFINED SYMBOLS_SOURCE_DIR )
+    message( FATAL_ERROR "SYMBOLS_TAG or SYMBOLS_SOURCE_DIR must be set.  Please see the README or try build.py." )
 endif ()
-if( NOT DEFINED DOCS_TARBALL_URL)
+if( KMB_ENABLE_DOCS AND NOT DEFINED DOCS_TARBALL_URL )
     message( FATAL_ERROR "DOCS_TARBALL_URL must be set.  Please see the README or try build.py." )
 endif ()
-if( NOT DEFINED TEMPLATES_TAG)
-    message( FATAL_ERROR "TEMPLATES_TAG must be set.  Please see the README or try build.py." )
+if( NOT DEFINED TEMPLATES_TAG AND NOT DEFINED TEMPLATES_SOURCE_DIR )
+    message( FATAL_ERROR "TEMPLATES_TAG or TEMPLATES_SOURCE_DIR must be set.  Please see the README or try build.py." )
 endif ()
 if( NOT DEFINED SKIP_DOCS_UPDATE )
     set( SKIP_DOCS_UPDATE OFF )
@@ -61,6 +67,14 @@ set( SYMBOLS_URL https://gitlab.com/kicad/libraries/kicad-symbols.git )
 set( PACKAGES3D_URL https://gitlab.com/kicad/libraries/kicad-packages3D.git )
 set( TEMPLATES_URL https://gitlab.com/kicad/libraries/kicad-templates.git )
 set( FOOTPRINTS_URL https://gitlab.com/kicad/libraries/kicad-footprints.git )
+
+# Optional local checkouts of the KiCad library repos.  When set, the
+# corresponding <LIB>_TAG / <LIB>_URL are ignored and the library is built
+# straight from the local source (offline, no git fetch — same as KICAD_SOURCE_DIR).
+set( SYMBOLS_SOURCE_DIR "" CACHE FILEPATH "Local kicad-symbols checkout (offline)." )
+set( FOOTPRINTS_SOURCE_DIR "" CACHE FILEPATH "Local kicad-footprints checkout (offline)." )
+set( PACKAGES3D_SOURCE_DIR "" CACHE FILEPATH "Local kicad-packages3D checkout (offline)." )
+set( TEMPLATES_SOURCE_DIR "" CACHE FILEPATH "Local kicad-templates checkout (offline)." )
 
 set( PYTHON_VERSION 3.9.13 )
 set( PYTHON_X_Y_VERSION 3.9 )
@@ -160,13 +174,19 @@ message( "SYMBOLS_URL: ${SYMBOLS_URL}" )
 message( "FOOTPRINTS_URL: ${FOOTPRINTS_URL}" )
 message( "PACKAGES3D_URL: ${PACKAGES3D_URL}" )
 message( "TEMPLATES_URL: ${TEMPLATES_URL}" )
+message( "SYMBOLS_SOURCE_DIR: ${SYMBOLS_SOURCE_DIR}" )
+message( "FOOTPRINTS_SOURCE_DIR: ${FOOTPRINTS_SOURCE_DIR}" )
+message( "PACKAGES3D_SOURCE_DIR: ${PACKAGES3D_SOURCE_DIR}" )
+message( "TEMPLATES_SOURCE_DIR: ${TEMPLATES_SOURCE_DIR}" )
 message( "KICAD_CMAKE_ARGS: ${PRINTABLE_KICAD_CMAKE_ARGS}" )
 
 
 include( python.cmake )
 include( wx.cmake )
 include( ngspice.cmake)
-include( docs.cmake )
+if( KMB_ENABLE_DOCS )
+    include( docs.cmake )
+endif()
 
 include( footprints.cmake )
 include( symbols.cmake )

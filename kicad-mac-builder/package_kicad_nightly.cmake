@@ -4,9 +4,14 @@ else()
     set(PACKAGE_KICAD_SOURCE_DIR ${KICAD_SOURCE_DIR})
 endif()
 
+set( PACKAGE_KICAD_NIGHTLY_DEPS kicad symbols footprints templates )
+if( KMB_ENABLE_DOCS )
+    list( APPEND PACKAGE_KICAD_NIGHTLY_DEPS docs )
+endif()
+
 ExternalProject_Add(
     package-kicad-nightly
-    DEPENDS kicad symbols docs footprints templates
+    DEPENDS ${PACKAGE_KICAD_NIGHTLY_DEPS}
     PREFIX package-kicad-nightly
     DOWNLOAD_COMMAND ""
     UPDATE_COMMAND   ""
